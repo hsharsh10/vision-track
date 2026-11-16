@@ -265,6 +265,49 @@ class GeocodingService:
         except Exception as e:
             logger.debug(f"Photon geocoding search error: {e}")
 
+        # 3. Augment with OpenStreetMap Nominatim search for rich local landmarks
+        if len(results) < 4:
+            try:
+                nom_q = urllib.parse.quote(clean_q)
+                bias_lat = lat if lat is not None else 28.6139
+                bias_lon = lon if lon is not None else 77.2090
+                nom_url = (
+                    f"https://nominatim.openstreetmap.org/search?q={nom_q}&format=json&addressdetails=1&limit=5&countrycodes=in"
+                    f"&viewbox={round(bias_lon-0.5, 4)},{round(bias_lat+0.5, 4)},{round(bias_lon+0.5, 4)},{round(bias_lat-0.5, 4)}"
+                )
+                req = urllib.request.Request(nom_url, headers={"User-Agent": self.user_agent})
+                with urllib.request.urlopen(req, timeout=3.0) as resp:
+                    nom_data = json.loads(resp.read().decode("utf-8"))
+                    for item in nom_data:
+                        f_lat = float(item.get("lat", 0))
+                        f_lon = float(item.get("lon", 0))
+                        coord_key = (round(f_lat, 4), round(f_lon, 4))
+                        if coord_key in seen_coords:
+                            continue
+                        seen_coords.add(coord_key)
+
+                        disp_name = item.get("display_name", "")
+                        addr = item.get("address", {})
+                        short_name = (
+                            addr.get("amenity") or
+                            addr.get("suburb") or
+                            addr.get("neighbourhood") or
+                            addr.get("residential") or
+                            addr.get("road") or
+                            disp_name.split(",")[0]
+                        )
+                        results.append(StandardizedLocation(
+                            place_id=str(item.get("osm_id", "")),
+                            name=short_name,
+                            formatted_address=disp_name,
+                            latitude=round(f_lat, 6),
+                            longitude=round(f_lon, 6),
+                            source=LocationSource.PLACES_AUTOCOMPLETE,
+                            accuracy_meters=15
+                        ))
+            except Exception as e:
+                logger.debug(f"Nominatim search augment error: {e}")
+
         # Cache results
         _AUTOCOMPLETE_CACHE[cache_key] = [r.dict() for r in results[:10]]
         return results[:10]
