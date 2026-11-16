@@ -1,0 +1,46 @@
+version: "3.9"
+
+services:
+  db:
+    image: postgis/postgis:16-3.4
+    container_name: gatimarg_postgis
+    environment:
+      POSTGRES_DB: gatimarg_mobility
+      POSTGRES_USER: gatimarg_admin
+      POSTGRES_PASSWORD: gatimarg_secure_pass
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gatimarg_admin -d gatimarg_mobility"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: gatimarg_backend
+    environment:
+      - DATABASE_URL=postgresql://gatimarg_admin:gatimarg_secure_pass@db:5432/gatimarg_mobility
+      - PORT=8000
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: gatimarg_frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+
+volumes:
+  pgdata:

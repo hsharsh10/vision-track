@@ -1,0 +1,144 @@
+@import "tailwindcss";
+@import "leaflet/dist/leaflet.css";
+
+:root {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+  color-scheme: light;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background-color: #f8fafc;
+  color: #0f172a;
+}
+
+/* Custom scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* ==========================================================================
+   Leaflet Light & Dark Styling
+   ========================================================================== */
+.leaflet-container {
+  background-color: #f1f5f9 !important;
+  font-family: inherit !important;
+}
+
+.leaflet-dark-tiles .leaflet-tile {
+  filter: brightness(0.65) invert(100%) hue-rotate(180deg) saturate(0.35) contrast(1.2) !important;
+}
+
+.custom-map-pin {
+  background: transparent !important;
+  border: none !important;
+}
+
+.pulse-gps-marker {
+  position: relative;
+  width: 20px;
+  height: 20px;
+}
+.pulse-gps-marker .gps-dot {
+  width: 14px;
+  height: 14px;
+  background: #2563eb;
+  border: 2.5px solid #ffffff;
+  border-radius: 50%;
+  box-shadow: 0 0 10px rgba(37, 99, 235, 0.6);
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  z-index: 2;
+}
+.pulse-gps-marker .gps-ring {
+  width: 28px;
+  height: 28px;
+  background: rgba(37, 99, 235, 0.3);
+  border-radius: 50%;
+  position: absolute;
+  top: -4px;
+  left: -4px;
+  animation: gps-pulse 2s infinite ease-out;
+}
+@keyframes gps-pulse {
+  0% {
+    transform: scale(0.6);
+    opacity: 0.9;
+  }
+  100% {
+    transform: scale(2.2);
+    opacity: 0;
+  }
+}
+
+.leaflet-popup-content-wrapper {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+  border: 1px solid #e2e8f0 !important;
+  border-radius: 14px !important;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1) !important;
+}
+
+.leaflet-popup-tip {
+  background-color: #ffffff !important;
+}
+
+/* ==========================================================================
+   Google Places Autocomplete Styling (Light Theme)
+   ========================================================================== */
+.pac-container {
+  background-color: #ffffff !important;
+  border: 1px solid #e2e8f0 !important;
+  border-radius: 14px !important;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1) !important;
+  font-family: inherit !important;
+  margin-top: 6px !important;
+  z-index: 99999 !important;
+  overflow: hidden !important;
+}
+
+.pac-item {
+  padding: 10px 14px !important;
+  border-top: 1px solid #f1f5f9 !important;
+  color: #475569 !important;
+  font-size: 13px !important;
+  cursor: pointer !important;
+  display: flex !important;
+  align-items: center !important;
+  transition: background-color 0.15s ease !important;
+}
+
+.pac-item:hover,
+.pac-item-selected {
+  background-color: #f8fafc !important;
+  color: #0f172a !important;
+}
+
+.pac-item-query {
+  color: #0f172a !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  margin-right: 6px !important;
+}
+
+.pac-matched {
+  color: #0d9488 !important;
+  font-weight: 700 !important;
+}
+
+.pac-icon {
+  margin-right: 10px !important;
+}
