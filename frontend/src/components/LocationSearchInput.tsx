@@ -312,9 +312,9 @@ export const LocationSearchInput: React.FC<Props> = ({
                 )}
               </div>
               <div className="min-w-0">
-                <div>Use my current location</div>
+                <div>{isGPSLoading ? "Acquiring GPS Satellite Lock..." : "Use my current location"}</div>
                 <div className="text-[10px] text-teal-600 font-normal">
-                  Accurate GPS detection with reverse geocoding
+                  {isGPSLoading ? "Acquiring high-accuracy hardware fix (±15m)..." : "Accurate GPS detection with reverse geocoding"}
                 </div>
               </div>
             </button>

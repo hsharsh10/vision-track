@@ -399,7 +399,7 @@ export const LocationPickerModal: React.FC<Props> = ({
             ) : (
               <Crosshair className="w-4 h-4 text-teal-700" />
             )}
-            <span>Use My GPS</span>
+            <span>{isGPSLoading ? "Locking GPS..." : "Use My GPS"}</span>
           </button>
         </div>
 

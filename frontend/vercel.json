@@ -2,7 +2,7 @@
   "rewrites": [
     {
       "source": "/api/(.*)",
-      "destination": "https://gatimarg-backend.onrender.com/api/$1"
+      "destination": "https://vision-track-zcj1.onrender.com/api/$1"
     },
     {
       "source": "/(.*)",

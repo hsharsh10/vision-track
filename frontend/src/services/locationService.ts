@@ -8,9 +8,10 @@ const SAVED_LOCATIONS_KEY = "gatimarg_saved_locations";
 
 export class LocationService {
   /**
-   * Requests browser GPS permission and retrieves live geographic position.
-   * Performs reverse-geocoding to produce a standardized readable location object.
-   * Never substitutes a hardcoded dummy location on failure.
+   * Requests browser GPS permission and retrieves live high-precision geographic position.
+   * Uses satellite convergence (watchPosition) to wait for accurate hardware GPS fix (<35m)
+   * rather than prematurely accepting the coarse cellular/ISP gateway estimate (~3km, Civil Lines).
+   * Sets maximumAge: 0 to guarantee fresh hardware coordinates.
    */
   async getCurrentPosition(): Promise<StandardizedLocation> {
     if (!navigator.geolocation) {
@@ -18,49 +19,124 @@ export class LocationService {
     }
 
     return new Promise((resolve, reject) => {
-      navigator.geolocation.getCurrentPosition(
-        async (position) => {
-          const lat = position.coords.latitude;
-          const lon = position.coords.longitude;
-          const accuracy = Math.round(position.coords.accuracy || 15);
+      let bestPosition: GeolocationPosition | null = null;
+      let watchId: number | null = null;
+      let hasResolved = false;
 
+      const finishWithPosition = async (pos: GeolocationPosition) => {
+        if (hasResolved) return;
+        hasResolved = true;
+
+        if (watchId !== null) {
           try {
-            const loc = await this.reverseGeocode(lat, lon, "GPS", accuracy);
-            this.saveRecentLocation(loc);
-            resolve(loc);
+            navigator.geolocation.clearWatch(watchId);
           } catch {
-            // Minimal fallback if reverse geocoder fails
-            resolve({
-              name: `GPS Location (${lat.toFixed(4)}, ${lon.toFixed(4)})`,
-              formatted_address: `Current position at ${lat.toFixed(6)}, ${lon.toFixed(6)}`,
-              latitude: lat,
-              longitude: lon,
-              source: "GPS",
-              accuracy_meters: accuracy,
-            });
+            // ignore
           }
-        },
-        (error) => {
-          let msg = "Could not read GPS location. Please enter an address or choose on map.";
-          switch (error.code) {
-            case error.PERMISSION_DENIED:
-              msg = "Location permission denied. Please allow location access in your browser or search for an address.";
-              break;
-            case error.POSITION_UNAVAILABLE:
-              msg = "GPS location unavailable. Please check your signal or select your position on the map.";
-              break;
-            case error.TIMEOUT:
-              msg = "GPS request timed out. Please try again or select your location on the map.";
-              break;
-          }
-          reject(new Error(msg));
-        },
-        {
-          enableHighAccuracy: true,
-          timeout: 10000,
-          maximumAge: 30000,
+          watchId = null;
         }
-      );
+        if (safetyTimer) {
+          clearTimeout(safetyTimer);
+        }
+
+        const lat = pos.coords.latitude;
+        const lon = pos.coords.longitude;
+        const accuracy = Math.round(pos.coords.accuracy || 15);
+        console.log(`[GPS Fix Acquired] Lat: ${lat}, Lon: ${lon}, Accuracy: ±${accuracy}m`);
+
+        try {
+          const loc = await this.reverseGeocode(lat, lon, "GPS", accuracy);
+          this.saveRecentLocation(loc);
+          resolve(loc);
+        } catch {
+          // Minimal fallback if reverse geocoder fails
+          resolve({
+            name: `GPS Location (${lat.toFixed(4)}, ${lon.toFixed(4)})`,
+            formatted_address: `Current position at ${lat.toFixed(6)}, ${lon.toFixed(6)} (±${accuracy}m)`,
+            latitude: lat,
+            longitude: lon,
+            source: "GPS",
+            accuracy_meters: accuracy,
+          });
+        }
+      };
+
+      // Safety timeout: wait at most 7 seconds for satellite lock to converge
+      const safetyTimer = setTimeout(() => {
+        if (hasResolved) return;
+        if (bestPosition) {
+          console.warn(`[GPS] Convergence timeout reached. Using best fix (±${Math.round(bestPosition.coords.accuracy)}m)`);
+          finishWithPosition(bestPosition);
+        } else {
+          if (watchId !== null) {
+            try {
+              navigator.geolocation.clearWatch(watchId);
+            } catch {
+              // ignore
+            }
+            watchId = null;
+          }
+          hasResolved = true;
+          reject(new Error("GPS satellite lock timed out. Please ensure phone location is ON and 'Precise Location' is enabled in browser permissions."));
+        }
+      }, 7000);
+
+      try {
+        watchId = navigator.geolocation.watchPosition(
+          (pos) => {
+            const acc = pos.coords.accuracy;
+            console.log(`[GPS Update] Lat: ${pos.coords.latitude}, Lon: ${pos.coords.longitude}, Accuracy: ±${Math.round(acc)}m`);
+
+            if (!bestPosition || acc < bestPosition.coords.accuracy) {
+              bestPosition = pos;
+            }
+
+            // High precision fix (<= 35m) typically indicates true GPS satellite lock
+            if (acc <= 35) {
+              finishWithPosition(pos);
+            }
+          },
+          (error) => {
+            if (bestPosition) {
+              finishWithPosition(bestPosition);
+              return;
+            }
+            if (hasResolved) return;
+            hasResolved = true;
+            if (watchId !== null) {
+              try {
+                navigator.geolocation.clearWatch(watchId);
+              } catch {
+                // ignore
+              }
+              watchId = null;
+            }
+            clearTimeout(safetyTimer);
+
+            let msg = "Could not read GPS location. Please enter an address or choose on map.";
+            switch (error.code) {
+              case error.PERMISSION_DENIED:
+                msg = "Location permission denied. Please allow location access with 'Precise Location' enabled.";
+                break;
+              case error.POSITION_UNAVAILABLE:
+                msg = "GPS location unavailable. Please check your signal or select your position on the map.";
+                break;
+              case error.TIMEOUT:
+                msg = "GPS request timed out. Please check your GPS signal or select your location on the map.";
+                break;
+            }
+            reject(new Error(msg));
+          },
+          {
+            enableHighAccuracy: true,
+            timeout: 9000,
+            maximumAge: 0, // CRITICAL: Never return stale cached cellular coordinates!
+          }
+        );
+      } catch (err: any) {
+        clearTimeout(safetyTimer);
+        reject(new Error(err?.message || "Failed to start GPS service"));
+      }
     });
   }
 
