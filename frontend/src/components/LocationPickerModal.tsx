@@ -7,7 +7,6 @@ import {
   Check,
   Loader2,
   AlertCircle,
-  Navigation,
 } from "lucide-react";
 import L from "leaflet";
 import { StandardizedLocation, LocationSource } from "../types";
@@ -44,6 +43,7 @@ export const LocationPickerModal: React.FC<Props> = ({
   const mapInstanceRef = useRef<L.Map | null>(null);
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reverseGeocodeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isProgrammaticMoveRef = useRef(false);
 
   useEffect(() => {
     setActiveTarget(target);
@@ -78,7 +78,7 @@ export const LocationPickerModal: React.FC<Props> = ({
         } finally {
           setIsReverseGeocoding(false);
         }
-      }, 350);
+      }, 300);
     },
     []
   );
@@ -114,13 +114,18 @@ export const LocationPickerModal: React.FC<Props> = ({
 
       map.on("moveend", () => {
         setIsDraggingMap(false);
+        // If the movement was triggered programmatically (e.g. search flyTo), don't overwrite the searched location!
+        if (isProgrammaticMoveRef.current) {
+          isProgrammaticMoveRef.current = false;
+          return;
+        }
         const center = map.getCenter();
         updatePosition(center.lat, center.lng, "MAP_PIN");
       });
 
       // Map click pans that clicked spot smoothly to center
       map.on("click", (e: L.LeafletMouseEvent) => {
-        map.panTo(e.latlng, { animate: true, duration: 0.4 });
+        map.panTo(e.latlng, { animate: true, duration: 0.3 });
         updatePosition(e.latlng.lat, e.latlng.lng, "MAP_PIN");
       });
 
@@ -175,16 +180,56 @@ export const LocationPickerModal: React.FC<Props> = ({
       } finally {
         setIsSearching(false);
       }
-    }, 280);
+    }, 250);
   };
 
+  // ─── Navigate map to selected search result ──────────────────────────────
   const handleSelectSearchResult = (loc: StandardizedLocation) => {
     setSelectedLocation(loc);
-    setSearchQuery("");
+    setSearchQuery(loc.name);
     setSearchResults([]);
+    setPickerError(null);
 
     if (mapInstanceRef.current) {
-      mapInstanceRef.current.flyTo([loc.latitude, loc.longitude], 16, { duration: 0.8 });
+      isProgrammaticMoveRef.current = true;
+      mapInstanceRef.current.flyTo([loc.latitude, loc.longitude], 16, {
+        animate: true,
+        duration: 0.8,
+      });
+    }
+  };
+
+  // ─── Search Form Submit (Enter key or Search button) ──────────────────────
+  const handleSearchSubmit = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const query = searchQuery.trim();
+    if (!query) return;
+
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+    }
+
+    // 1. If we already have autocomplete matches, pick the top result
+    if (searchResults.length > 0) {
+      handleSelectSearchResult(searchResults[0]);
+      return;
+    }
+
+    // 2. Otherwise trigger immediate live search
+    setIsSearching(true);
+    setPickerError(null);
+    try {
+      const center = mapInstanceRef.current?.getCenter();
+      const results = await locationService.searchPlaces(query, center?.lat, center?.lng);
+      if (results && results.length > 0) {
+        handleSelectSearchResult(results[0]);
+      } else {
+        setPickerError(`No places found for "${query}". Try another landmark or drag the map.`);
+      }
+    } catch (err: any) {
+      setPickerError(err.message || "Failed to search location. Please try again or drag the map.");
+    } finally {
+      setIsSearching(false);
     }
   };
 
@@ -195,9 +240,14 @@ export const LocationPickerModal: React.FC<Props> = ({
     try {
       const loc = await locationService.getCurrentPosition();
       setSelectedLocation(loc);
+      setSearchQuery(loc.name);
 
       if (mapInstanceRef.current) {
-        mapInstanceRef.current.flyTo([loc.latitude, loc.longitude], 16, { duration: 0.8 });
+        isProgrammaticMoveRef.current = true;
+        mapInstanceRef.current.flyTo([loc.latitude, loc.longitude], 16, {
+          animate: true,
+          duration: 0.8,
+        });
       }
     } catch (err: any) {
       setPickerError(err.message || "Failed to retrieve current GPS location");
@@ -238,7 +288,7 @@ export const LocationPickerModal: React.FC<Props> = ({
                 Choose Location on Map
               </h2>
               <p className="text-[11px] text-slate-500 m-0 hidden sm:block">
-                Drag the map to place the pin, or click anywhere to select that location
+                Search a place or drag the map to position the pin exactly
               </p>
             </div>
           </div>
@@ -285,34 +335,54 @@ export const LocationPickerModal: React.FC<Props> = ({
 
         {/* ── 2. Search on Map Input ──────────────────────────────────────── */}
         <div className="relative px-4 py-2.5 bg-slate-50 border-b border-slate-200 shrink-0 z-20">
-          <div className="relative flex items-center max-w-xl mx-auto">
+          <form
+            onSubmit={handleSearchSubmit}
+            className="relative flex items-center max-w-xl mx-auto"
+          >
             <Search className="absolute left-3 w-4 h-4 text-slate-400 pointer-events-none" />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => handleSearchChange(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  handleSearchSubmit();
+                }
+              }}
               placeholder="Search building, mall, station, street or landmark..."
-              className="w-full bg-white border border-slate-200 rounded-xl pl-9 pr-9 py-2 text-xs sm:text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:border-teal-600 focus:ring-1 focus:ring-teal-600 shadow-2xs font-medium"
+              className="w-full bg-white border border-slate-200 rounded-xl pl-9 pr-24 py-2 text-xs sm:text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:border-teal-600 focus:ring-1 focus:ring-teal-600 shadow-2xs font-medium"
             />
-            {isSearching ? (
-              <Loader2 className="absolute right-3 w-4 h-4 text-teal-600 animate-spin" />
-            ) : searchQuery ? (
+            
+            <div className="absolute right-1.5 flex items-center gap-1">
+              {isSearching ? (
+                <Loader2 className="w-4 h-4 text-teal-600 animate-spin mr-1" />
+              ) : searchQuery ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearchQuery("");
+                    setSearchResults([]);
+                  }}
+                  className="p-1 text-slate-400 hover:text-slate-600 cursor-pointer rounded-full mr-0.5"
+                  title="Clear search"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              ) : null}
+
               <button
-                type="button"
-                onClick={() => {
-                  setSearchQuery("");
-                  setSearchResults([]);
-                }}
-                className="absolute right-3 text-slate-400 hover:text-slate-600 cursor-pointer"
+                type="submit"
+                className="px-2.5 py-1 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-xs font-semibold cursor-pointer shadow-xs transition"
               >
-                <X className="w-4 h-4" />
+                Search
               </button>
-            ) : null}
-          </div>
+            </div>
+          </form>
 
           {/* Autocomplete Search Dropdown */}
           {searchResults.length > 0 && (
-            <div className="absolute left-4 right-4 max-w-xl mx-auto top-full mt-1 bg-white border border-slate-200 rounded-2xl shadow-2xl z-50 max-h-60 overflow-y-auto divide-y divide-slate-100 ring-1 ring-slate-900/10">
+            <div className="absolute left-4 right-4 max-w-xl mx-auto top-full mt-1 bg-white border border-slate-200 rounded-2xl shadow-2xl z-[1050] max-h-60 overflow-y-auto divide-y divide-slate-100 ring-1 ring-slate-900/10">
               {searchResults.map((item, idx) => (
                 <button
                   key={idx}
@@ -337,9 +407,18 @@ export const LocationPickerModal: React.FC<Props> = ({
 
         {/* Error notification if any */}
         {pickerError && (
-          <div className="px-4 py-2 bg-rose-50 border-b border-rose-200 text-rose-700 text-xs flex items-center gap-2 shrink-0">
-            <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
-            <span>{pickerError}</span>
+          <div className="px-4 py-2 bg-rose-50 border-b border-rose-200 text-rose-700 text-xs flex items-center justify-between gap-2 shrink-0">
+            <div className="flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
+              <span>{pickerError}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setPickerError(null)}
+              className="text-rose-500 hover:text-rose-800 p-1 cursor-pointer"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
           </div>
         )}
 
@@ -347,13 +426,13 @@ export const LocationPickerModal: React.FC<Props> = ({
         <div className="relative flex-1 w-full min-h-0 bg-slate-100 overflow-hidden">
           <div ref={mapContainerRef} className="w-full h-full" />
 
-          {/* Center Pin Target for Google Maps / Uber-like Location Picking */}
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-full pointer-events-none z-30 flex flex-col items-center">
+          {/* Center Pin Target: High visibility, stays centered above map tiles (z-[1000]) */}
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-full pointer-events-none z-[1000] flex flex-col items-center">
             {/* Tooltip hint above pin */}
             <div
-              className={`mb-1 px-2.5 py-1 rounded-full text-[10px] font-bold text-white shadow-md transition-opacity duration-150 ${
-                isDraggingMap ? "opacity-0" : "opacity-100"
-              } ${isOrigin ? "bg-emerald-700" : "bg-rose-700"}`}
+              className={`mb-1 px-3 py-1 rounded-full text-[10px] font-bold text-white shadow-xl transition-all duration-150 ring-2 ring-white ${
+                isDraggingMap ? "opacity-0 scale-90" : "opacity-100 scale-100"
+              } ${isOrigin ? "bg-emerald-600" : "bg-rose-600"}`}
             >
               {isOrigin ? "📍 Set Pickup Here" : "📍 Set Drop Here"}
             </div>
@@ -362,26 +441,26 @@ export const LocationPickerModal: React.FC<Props> = ({
             <div
               className={`w-10 h-10 rounded-full flex items-center justify-center text-white shadow-2xl ring-3 ring-white transition-all duration-150 ${
                 isDraggingMap
-                  ? "-translate-y-3 scale-110 shadow-black/40"
+                  ? "-translate-y-3 scale-110 shadow-black/50"
                   : "translate-y-0 scale-100"
               } ${isOrigin ? "bg-emerald-600" : "bg-rose-600"}`}
             >
-              <MapPin className="w-5 h-5 fill-white text-white" />
+              <MapPin className="w-5 h-5 fill-white text-white drop-shadow-sm" />
             </div>
 
             {/* Pin Needle */}
             <div
-              className={`w-1 h-3 -mt-0.5 rounded-b ${
+              className={`w-1.5 h-3.5 -mt-0.5 rounded-b shadow-sm ${
                 isOrigin ? "bg-emerald-700" : "bg-rose-700"
               }`}
             />
 
             {/* Pin Shadow on Ground */}
             <div
-              className={`w-4 h-1.5 bg-black/40 rounded-full blur-[1px] transition-all duration-150 ${
+              className={`w-5 h-2 bg-black/50 rounded-full blur-[1px] transition-all duration-150 ${
                 isDraggingMap
                   ? "scale-50 opacity-20 mt-3"
-                  : "scale-100 opacity-70 mt-0.5"
+                  : "scale-100 opacity-80 mt-0.5"
               }`}
             />
           </div>
@@ -392,14 +471,14 @@ export const LocationPickerModal: React.FC<Props> = ({
             onClick={handleGPSClick}
             disabled={isGPSLoading}
             title="Locate my GPS position"
-            className="absolute bottom-4 right-4 z-20 bg-white hover:bg-slate-50 text-slate-700 px-3.5 py-2.5 rounded-2xl shadow-lg border border-slate-200 cursor-pointer transition flex items-center gap-2 text-xs font-semibold hover:shadow-xl active:scale-95"
+            className="absolute bottom-4 right-4 z-[1000] bg-white hover:bg-slate-50 text-slate-700 px-3.5 py-2.5 rounded-2xl shadow-lg border border-slate-200 cursor-pointer transition flex items-center gap-2 text-xs font-semibold hover:shadow-xl active:scale-95"
           >
             {isGPSLoading ? (
               <Loader2 className="w-4 h-4 text-teal-700 animate-spin" />
             ) : (
               <Crosshair className="w-4 h-4 text-teal-700" />
             )}
-            <span>{isGPSLoading ? "Locking GPS..." : "Use My GPS"}</span>
+            <span>Use My GPS</span>
           </button>
         </div>
 
