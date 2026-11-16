@@ -123,7 +123,7 @@ export const useMobilityStore = create<MobilityState>((set, get) => ({
       pickupLocation: loc,
       searchQuery: {
         ...state.searchQuery,
-        origin_name: loc.name,
+        origin_name: loc.name || loc.formatted_address || "Selected Pickup",
         origin_lat: loc.latitude,
         origin_lon: loc.longitude,
         pickup: loc,
@@ -138,7 +138,7 @@ export const useMobilityStore = create<MobilityState>((set, get) => ({
       destLocation: loc,
       searchQuery: {
         ...state.searchQuery,
-        dest_name: loc.name,
+        dest_name: loc.name || loc.formatted_address || "Selected Destination",
         dest_lat: loc.latitude,
         dest_lon: loc.longitude,
         destination: loc,
