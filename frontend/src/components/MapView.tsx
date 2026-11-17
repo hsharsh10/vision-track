@@ -108,6 +108,7 @@ export const MapView: React.FC<Props> = ({ selectedRoute }) => {
   // Leaflet instances
   const leafletMapRef = useRef<L.Map | null>(null);
   const leafletLayersRef = useRef<L.LayerGroup | null>(null);
+  const leafletTileLayerRef = useRef<L.TileLayer | null>(null);
 
   const [mapEngine, setMapEngine] = useState<MapEngine>("leaflet");
   const [mapTheme, setMapTheme] = useState<MapTheme>("roadmap");
@@ -194,11 +195,25 @@ export const MapView: React.FC<Props> = ({ selectedRoute }) => {
       zoomControl: true,
     });
 
-    // Clean OpenStreetMap tiles
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      maxZoom: 19,
-      attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+    // High-resolution Google Maps tiles (Roadmap, Satellite Hybrid, Dark)
+    const getGoogleTileUrl = (theme: MapTheme) => {
+      switch (theme) {
+        case "satellite":
+          return "https://mt{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}";
+        case "dark":
+        case "roadmap":
+        default:
+          return "https://mt{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}";
+      }
+    };
+
+    const tileLayer = L.tileLayer(getGoogleTileUrl(mapTheme), {
+      subdomains: ["0", "1", "2", "3"],
+      maxZoom: 20,
+      attribution: "© Google Maps",
     }).addTo(lmap);
+
+    leafletTileLayerRef.current = tileLayer;
 
     const layerGroup = L.layerGroup().addTo(lmap);
     leafletMapRef.current = lmap;
@@ -281,6 +296,13 @@ export const MapView: React.FC<Props> = ({ selectedRoute }) => {
       } else {
         leafletContainerRef.current.classList.remove("leaflet-dark-tiles");
       }
+    }
+    if (leafletTileLayerRef.current) {
+      const url =
+        mapTheme === "satellite"
+          ? "https://mt{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}"
+          : "https://mt{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}";
+      leafletTileLayerRef.current.setUrl(url);
     }
   }, [mapTheme]);
 
@@ -733,7 +755,7 @@ export const MapView: React.FC<Props> = ({ selectedRoute }) => {
         <div className="flex items-center gap-2">
           <MapIcon className="w-4 h-4 text-teal-700" />
           <span className="text-xs font-bold text-slate-800">
-            {mapEngine === "google" ? "Google Maps — Multimodal Route" : "OpenStreetMap — Live Route"}
+            Google Maps — Multimodal Route
           </span>
           {selectedRoute && (
             <span className="text-[11px] text-slate-500 font-medium truncate max-w-[200px]">
@@ -742,90 +764,46 @@ export const MapView: React.FC<Props> = ({ selectedRoute }) => {
           )}
         </div>
 
-        {/* Engine and Theme Switchers */}
+        {/* Google Maps Layer Switchers */}
         <div className="flex items-center gap-2">
-          {/* Engine Selector */}
-          <div className="flex items-center p-0.5 bg-slate-100 rounded-lg border border-slate-200 text-[10px]">
-            <button
-              onClick={() => setMapEngine("leaflet")}
-              title="OpenStreetMap — 100% Free, No Watermark"
-              className={`px-2.5 py-1 rounded font-semibold transition cursor-pointer ${
-                mapEngine === "leaflet"
-                  ? "bg-white text-slate-900 shadow-2xs font-bold"
-                  : "text-slate-500 hover:text-slate-900"
-              }`}
-            >
-              OSM (Free)
-            </button>
-            <button
-              onClick={() => setMapEngine("google")}
-              title="Google Maps (Requires active GCP billing)"
-              className={`px-2.5 py-1 rounded font-semibold transition cursor-pointer ${
-                mapEngine === "google"
-                  ? "bg-white text-slate-900 shadow-2xs font-bold"
-                  : "text-slate-500 hover:text-slate-900"
-              }`}
-            >
-              Google Maps
-            </button>
-          </div>
-
-          {/* Theme toggle */}
+          {/* Theme toggle: Roadmap | Satellite | Dark */}
           <div className="flex items-center gap-1">
             <button
               onClick={() => setMapTheme("roadmap")}
-              title="Standard Map"
-              className={`px-2 py-0.5 rounded-lg text-[10px] font-semibold transition border ${
+              title="Google Maps Standard Roadmap"
+              className={`px-2.5 py-1 rounded-lg text-[10px] font-semibold transition border cursor-pointer ${
                 mapTheme === "roadmap"
-                  ? "bg-teal-700 text-white border-teal-700"
-                  : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50 cursor-pointer"
+                  ? "bg-teal-700 text-white border-teal-700 shadow-xs"
+                  : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
               }`}
             >
-              🗺 Map
+              🗺️ Roadmap
+            </button>
+            <button
+              onClick={() => setMapTheme("satellite")}
+              title="Google Satellite with Streets & Labels"
+              className={`px-2.5 py-1 rounded-lg text-[10px] font-semibold transition border cursor-pointer ${
+                mapTheme === "satellite"
+                  ? "bg-teal-700 text-white border-teal-700 shadow-xs"
+                  : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
+              }`}
+            >
+              🛰️ Satellite
             </button>
             <button
               onClick={() => setMapTheme("dark")}
-              title="Dark Mode"
-              className={`px-2 py-0.5 rounded-lg text-[10px] font-semibold transition border ${
+              title="Dark Navigation Theme"
+              className={`px-2.5 py-1 rounded-lg text-[10px] font-semibold transition border cursor-pointer ${
                 mapTheme === "dark"
-                  ? "bg-teal-700 text-white border-teal-700"
-                  : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50 cursor-pointer"
+                  ? "bg-teal-700 text-white border-teal-700 shadow-xs"
+                  : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
               }`}
             >
               🌙 Dark
             </button>
-            {mapEngine === "google" && (
-              <button
-                onClick={() => setMapTheme("satellite")}
-                title="Satellite View"
-                className={`px-2 py-0.5 rounded-lg text-[10px] font-semibold transition border ${
-                  mapTheme === "satellite"
-                    ? "bg-teal-700 text-white border-teal-700"
-                    : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50 cursor-pointer"
-                }`}
-              >
-                🛰 Sat
-              </button>
-            )}
           </div>
         </div>
       </div>
-
-      {/* Google Maps Billing notice if active */}
-      {mapEngine === "google" && googleMapsAuthFailed && (
-        <div className="bg-amber-50 border-b border-amber-200 px-4 py-2 flex items-center justify-between text-xs text-amber-900 z-20">
-          <div className="flex items-center gap-2">
-            <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
-            <span>Google Maps requires Billing enabled in Google Cloud Console. Click "OSM (Free)" to view clean route tiles without watermark.</span>
-          </div>
-          <button
-            onClick={() => setMapEngine("leaflet")}
-            className="px-2.5 py-0.5 bg-teal-700 text-white rounded-lg text-[11px] font-semibold hover:bg-teal-800 transition cursor-pointer ml-3 shrink-0"
-          >
-            Switch to Free OSM
-          </button>
-        </div>
-      )}
 
       {/* ── Legend Bar (Section 5 Colors & Markers) ────────────────────────── */}
       <div className="bg-slate-50/90 border-b border-slate-100 px-4 py-1.5 flex items-center gap-4 text-[10px] text-slate-600 shrink-0 flex-wrap">

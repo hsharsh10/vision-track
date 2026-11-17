@@ -428,7 +428,7 @@ export const LocationSearchInput: React.FC<Props> = ({
           {/* Attribution footer */}
           <div className="px-3.5 py-1.5 bg-slate-50 text-[9px] text-slate-400 flex items-center justify-between">
             <span>Dynamic search (English &amp; Hindi)</span>
-            <span>OSM / Google Places</span>
+            <span>Google Places &amp; Maps</span>
           </div>
         </div>
       )}

@@ -38,9 +38,11 @@ export const LocationPickerModal: React.FC<Props> = ({
   const [isSearching, setIsSearching] = useState(false);
   const [isGPSLoading, setIsGPSLoading] = useState(false);
   const [pickerError, setPickerError] = useState<string | null>(null);
+  const [mapTheme, setMapTheme] = useState<"roadmap" | "satellite">("roadmap");
 
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
+  const tileLayerRef = useRef<L.TileLayer | null>(null);
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reverseGeocodeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isProgrammaticMoveRef = useRef(false);
@@ -98,10 +100,19 @@ export const LocationPickerModal: React.FC<Props> = ({
 
       L.control.zoom({ position: "topright" }).addTo(map);
 
-      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-        maxZoom: 19,
-        attribution: "© OpenStreetMap contributors",
+      // Google Maps Tile Layer (High-speed, global, roadmap & satellite)
+      const getGoogleTileUrl = (theme: "roadmap" | "satellite") =>
+        theme === "satellite"
+          ? "https://mt{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}"
+          : "https://mt{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}";
+
+      const tileLayer = L.tileLayer(getGoogleTileUrl(mapTheme), {
+        subdomains: ["0", "1", "2", "3"],
+        maxZoom: 20,
+        attribution: "© Google Maps",
       }).addTo(map);
+
+      tileLayerRef.current = tileLayer;
 
       // Map move listeners for center pin interaction (Google Maps / Uber style)
       map.on("movestart", () => {
@@ -156,6 +167,17 @@ export const LocationPickerModal: React.FC<Props> = ({
       }, 150);
     }
   }, [isOpen]);
+
+  // Dynamically switch Google Maps Roadmap / Satellite layer
+  useEffect(() => {
+    if (tileLayerRef.current) {
+      const url =
+        mapTheme === "satellite"
+          ? "https://mt{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}"
+          : "https://mt{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}";
+      tileLayerRef.current.setUrl(url);
+    }
+  }, [mapTheme]);
 
   // ─── Direct Search Autocomplete ──────────────────────────────────────────
   const handleSearchChange = (text: string) => {
@@ -292,8 +314,8 @@ export const LocationPickerModal: React.FC<Props> = ({
               <MapPin className="w-4 h-4" />
             </div>
             <div>
-              <h2 className="text-sm sm:text-base font-bold text-slate-900 m-0">
-                Choose Location on Map
+              <h2 className="text-sm sm:text-base font-bold text-slate-900 m-0 flex items-center gap-2">
+                <span>Choose Location on Google Maps</span>
               </h2>
               <p className="text-[11px] text-slate-500 m-0 hidden sm:block">
                 Search a place or drag the map to position the pin exactly
@@ -301,8 +323,35 @@ export const LocationPickerModal: React.FC<Props> = ({
             </div>
           </div>
 
-          {/* Mode Switcher */}
+          {/* Mode & Theme Switchers */}
           <div className="flex items-center gap-2">
+            {/* Google Maps Layer Switcher */}
+            <div className="flex items-center p-0.5 bg-slate-100 rounded-xl border border-slate-200 text-xs">
+              <button
+                type="button"
+                onClick={() => setMapTheme("roadmap")}
+                className={`px-2.5 py-1 rounded-lg font-semibold transition cursor-pointer ${
+                  mapTheme === "roadmap"
+                    ? "bg-white text-slate-900 shadow-2xs font-bold"
+                    : "text-slate-500 hover:text-slate-900"
+                }`}
+              >
+                🗺️ Map
+              </button>
+              <button
+                type="button"
+                onClick={() => setMapTheme("satellite")}
+                className={`px-2.5 py-1 rounded-lg font-semibold transition cursor-pointer ${
+                  mapTheme === "satellite"
+                    ? "bg-white text-slate-900 shadow-2xs font-bold"
+                    : "text-slate-500 hover:text-slate-900"
+                }`}
+              >
+                🛰️ Satellite
+              </button>
+            </div>
+
+            {/* Target Switcher */}
             <div className="flex items-center p-0.5 bg-slate-100 rounded-xl border border-slate-200 text-xs">
               <button
                 type="button"
