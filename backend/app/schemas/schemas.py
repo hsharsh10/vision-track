@@ -179,12 +179,12 @@ class SearchRequest(BaseModel):
 
     def resolve_pickup(self) -> tuple[str, float, float]:
         if self.pickup:
-            return self.pickup.name or self.pickup.formatted_address, self.pickup.latitude, self.pickup.longitude
+            return self.pickup.formatted_address or self.pickup.name, self.pickup.latitude, self.pickup.longitude
         return self.origin_name or "Pickup Location", self.origin_lat or 28.6139, self.origin_lon or 77.2090
 
     def resolve_dest(self) -> tuple[str, float, float]:
         if self.destination:
-            return self.destination.name or self.destination.formatted_address, self.destination.latitude, self.destination.longitude
+            return self.destination.formatted_address or self.destination.name, self.destination.latitude, self.destination.longitude
         return self.dest_name or "Destination", self.dest_lat or 28.6443, self.dest_lon or 77.1903
 
 class SearchResponse(BaseModel):

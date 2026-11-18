@@ -13,6 +13,9 @@ import {
   ChevronUp,
   Search,
   MessageSquare,
+  Navigation,
+  Copy,
+  Check,
 } from "lucide-react";
 import { useMobilityStore } from "../store/mobilityStore";
 import { TravelModeFilter, RoutePriority, StandardizedLocation } from "../types";
@@ -22,8 +25,12 @@ export const SearchWidget: React.FC = () => {
   const {
     searchQuery,
     setSearchQuery,
+    pickupLocation,
+    destLocation,
     setPickupLocation,
     setDestLocation,
+    clearPickupLocation,
+    clearDestLocation,
     openLocationPicker,
     swapLocations,
     executeSearch,
@@ -33,6 +40,17 @@ export const SearchWidget: React.FC = () => {
   } = useMobilityStore();
 
   const [isLimitsOpen, setIsLimitsOpen] = useState(false);
+  const [isCoordinatesOpen, setIsCoordinatesOpen] = useState(true);
+  const [copiedCoord, setCopiedCoord] = useState<"pickup" | "dest" | null>(null);
+
+  const handleCopyCoordinates = (type: "pickup" | "dest", lat: number, lon: number) => {
+    const text = `${lat.toFixed(6)}, ${lon.toFixed(6)}`;
+    navigator.clipboard.writeText(text);
+    setCopiedCoord(type);
+    setTimeout(() => {
+      setCopiedCoord(null);
+    }, 2000);
+  };
 
   const travelModes: {
     id: TravelModeFilter;
@@ -90,12 +108,14 @@ export const SearchWidget: React.FC = () => {
           label="Pickup"
           placeholder="Search any address, landmark, building, or station"
           value={searchQuery.origin_name}
+          location={pickupLocation}
           onChangeText={(text) => setSearchQuery({ origin_name: text })}
           onSelectLocation={(loc: StandardizedLocation) => setPickupLocation(loc)}
+          onClearLocation={clearPickupLocation}
           onOpenMapPicker={() => openLocationPicker("origin")}
           isPickup={true}
-          viewportLat={searchQuery.origin_lat}
-          viewportLon={searchQuery.origin_lon}
+          viewportLat={pickupLocation?.latitude || searchQuery.origin_lat}
+          viewportLon={pickupLocation?.longitude || searchQuery.origin_lon}
         />
 
         {/* Swap Locations Button */}
@@ -115,13 +135,139 @@ export const SearchWidget: React.FC = () => {
           label="Destination"
           placeholder="Where are you going? (Mall, office, airport, address)"
           value={searchQuery.dest_name}
+          location={destLocation}
           onChangeText={(text) => setSearchQuery({ dest_name: text })}
           onSelectLocation={(loc: StandardizedLocation) => setDestLocation(loc)}
+          onClearLocation={clearDestLocation}
           onOpenMapPicker={() => openLocationPicker("dest")}
           isPickup={false}
-          viewportLat={searchQuery.dest_lat}
-          viewportLon={searchQuery.dest_lon}
+          viewportLat={destLocation?.latitude || searchQuery.dest_lat}
+          viewportLon={destLocation?.longitude || searchQuery.dest_lon}
         />
+
+        {/* ── Location Details & Exact Coordinates Panel (Section 4 & 5) ── */}
+        <div className="bg-slate-50/80 rounded-2xl border border-slate-200/80 p-3 sm:p-3.5 space-y-2.5 transition">
+          <div className="flex items-center justify-between">
+            <button
+              type="button"
+              onClick={() => setIsCoordinatesOpen(!isCoordinatesOpen)}
+              className="flex items-center gap-2 text-xs font-bold text-slate-700 hover:text-teal-900 cursor-pointer"
+            >
+              <Navigation className="w-3.5 h-3.5 text-teal-600" />
+              <span>Location Coordinates &amp; Full Addresses</span>
+              {isCoordinatesOpen ? (
+                <ChevronUp className="w-3.5 h-3.5 text-slate-400" />
+              ) : (
+                <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+              )}
+            </button>
+            <span className="text-[10px] text-teal-700 font-semibold bg-teal-50 px-2 py-0.5 rounded-full border border-teal-200">
+              Verified Geometry
+            </span>
+          </div>
+
+          {isCoordinatesOpen && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 pt-1">
+              {/* Pickup Location Details */}
+              <div className="bg-white rounded-xl border border-slate-200 p-2.5 space-y-1.5 shadow-2xs">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-bold text-emerald-700 uppercase tracking-wider flex items-center gap-1">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block"></span>
+                    Pickup Location
+                  </span>
+                  {pickupLocation && (
+                    <button
+                      type="button"
+                      onClick={() => handleCopyCoordinates("pickup", pickupLocation.latitude, pickupLocation.longitude)}
+                      className="text-[10px] text-slate-500 hover:text-slate-800 flex items-center gap-1 px-1.5 py-0.5 rounded hover:bg-slate-100 transition cursor-pointer"
+                      title="Copy coordinates"
+                    >
+                      {copiedCoord === "pickup" ? (
+                        <>
+                          <Check className="w-3 h-3 text-emerald-600" />
+                          <span className="text-emerald-700 font-semibold">Copied!</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="w-3 h-3 text-slate-400" />
+                          <span>Copy coords</span>
+                        </>
+                      )}
+                    </button>
+                  )}
+                </div>
+
+                <div className="text-xs font-semibold text-slate-900 line-clamp-2" title={pickupLocation?.formatted_address || searchQuery.origin_name}>
+                  {pickupLocation?.formatted_address || searchQuery.origin_name || "No pickup selected"}
+                </div>
+
+                {pickupLocation ? (
+                  <div className="grid grid-cols-2 gap-1 text-[11px] font-mono bg-slate-50 p-1.5 rounded-lg border border-slate-100">
+                    <div>
+                      <span className="text-slate-400 block text-[9px] font-sans uppercase">Latitude</span>
+                      <span className="text-slate-800 font-semibold">{pickupLocation.latitude.toFixed(6)}</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-400 block text-[9px] font-sans uppercase">Longitude</span>
+                      <span className="text-slate-800 font-semibold">{pickupLocation.longitude.toFixed(6)}</span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-[11px] text-slate-400 italic">Select a pickup location to view exact coordinates.</div>
+                )}
+              </div>
+
+              {/* Destination Location Details */}
+              <div className="bg-white rounded-xl border border-slate-200 p-2.5 space-y-1.5 shadow-2xs">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-bold text-rose-700 uppercase tracking-wider flex items-center gap-1">
+                    <span className="w-2 h-2 rounded-full bg-rose-500 inline-block"></span>
+                    Destination Location
+                  </span>
+                  {destLocation && (
+                    <button
+                      type="button"
+                      onClick={() => handleCopyCoordinates("dest", destLocation.latitude, destLocation.longitude)}
+                      className="text-[10px] text-slate-500 hover:text-slate-800 flex items-center gap-1 px-1.5 py-0.5 rounded hover:bg-slate-100 transition cursor-pointer"
+                      title="Copy coordinates"
+                    >
+                      {copiedCoord === "dest" ? (
+                        <>
+                          <Check className="w-3 h-3 text-emerald-600" />
+                          <span className="text-emerald-700 font-semibold">Copied!</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="w-3 h-3 text-slate-400" />
+                          <span>Copy coords</span>
+                        </>
+                      )}
+                    </button>
+                  )}
+                </div>
+
+                <div className="text-xs font-semibold text-slate-900 line-clamp-2" title={destLocation?.formatted_address || searchQuery.dest_name}>
+                  {destLocation?.formatted_address || searchQuery.dest_name || "No destination selected"}
+                </div>
+
+                {destLocation ? (
+                  <div className="grid grid-cols-2 gap-1 text-[11px] font-mono bg-slate-50 p-1.5 rounded-lg border border-slate-100">
+                    <div>
+                      <span className="text-slate-400 block text-[9px] font-sans uppercase">Latitude</span>
+                      <span className="text-slate-800 font-semibold">{destLocation.latitude.toFixed(6)}</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-400 block text-[9px] font-sans uppercase">Longitude</span>
+                      <span className="text-slate-800 font-semibold">{destLocation.longitude.toFixed(6)}</span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-[11px] text-slate-400 italic">Select a destination to view exact coordinates.</div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
 
         {/* Location Error alert if any */}
         {locationError && (

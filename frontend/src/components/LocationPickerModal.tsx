@@ -216,7 +216,7 @@ export const LocationPickerModal: React.FC<Props> = ({
   // ─── Navigate map to selected search result ──────────────────────────────
   const handleSelectSearchResult = (loc: StandardizedLocation) => {
     setSelectedLocation(loc);
-    setSearchQuery(loc.name);
+    setSearchQuery(loc.formatted_address || loc.name);
     setSearchResults([]);
     setPickerError(null);
 
@@ -270,7 +270,7 @@ export const LocationPickerModal: React.FC<Props> = ({
     try {
       const loc = await locationService.getCurrentPosition();
       setSelectedLocation(loc);
-      setSearchQuery(loc.name);
+      setSearchQuery(loc.formatted_address || loc.name);
 
       if (mapInstanceRef.current) {
         isProgrammaticMoveRef.current = true;
@@ -561,7 +561,7 @@ export const LocationPickerModal: React.FC<Props> = ({
                 </span>
                 {selectedLocation && (
                   <span className="text-[10px] text-slate-400 font-mono hidden md:inline">
-                    ({selectedLocation.latitude.toFixed(4)}, {selectedLocation.longitude.toFixed(4)})
+                    ({selectedLocation.latitude.toFixed(6)}, {selectedLocation.longitude.toFixed(6)})
                   </span>
                 )}
               </div>
@@ -573,11 +573,11 @@ export const LocationPickerModal: React.FC<Props> = ({
                 </div>
               ) : (
                 <div className="min-w-0">
-                  <div className="text-xs sm:text-sm font-bold text-slate-900 truncate">
-                    {selectedLocation?.name || "Move map to choose location"}
+                  <div className="text-xs sm:text-sm font-bold text-slate-900 truncate" title={selectedLocation?.formatted_address || selectedLocation?.name}>
+                    {selectedLocation?.formatted_address || selectedLocation?.name || "Move map to choose location"}
                   </div>
                   <div className="text-[11px] text-slate-500 truncate">
-                    {selectedLocation?.formatted_address || "Drag the map or click anywhere to select"}
+                    {selectedLocation ? `Place: ${selectedLocation.name} • Coordinates: ${selectedLocation.latitude.toFixed(6)}, ${selectedLocation.longitude.toFixed(6)}` : "Drag the map or click anywhere to select"}
                   </div>
                 </div>
               )}

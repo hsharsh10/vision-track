@@ -91,6 +91,8 @@ const DARK_MAP_STYLES: google.maps.MapTypeStyle[] = [
 
 export const MapView: React.FC<Props> = ({ selectedRoute }) => {
   const {
+    pickupLocation,
+    destLocation,
     setPickupLocation,
     setDestLocation,
     currentGPSLocation,
@@ -325,118 +327,118 @@ export const MapView: React.FC<Props> = ({ selectedRoute }) => {
   // ─── Render Google Maps Multi-Segment Route ───────────────────────────────
   const renderGoogleRoute = useCallback(() => {
     const map = googleMapRef.current;
-    if (!map || !selectedRoute) return;
+    if (!map) return;
 
     clearGoogleOverlays();
     const legs = getLegs(selectedRoute);
-    if (legs.length === 0) return;
-
     const bounds = new google.maps.LatLngBounds();
     const infoWindow = infoWindowRef.current!;
 
     // 1. Draw each individual leg polyline with specific styles
-    legs.forEach((leg, index) => {
-      let coords: Array<{ lat: number; lng: number }> = [];
+    if (legs.length > 0) {
+      legs.forEach((leg, index) => {
+        let coords: Array<{ lat: number; lng: number }> = [];
 
-      // Check decoded_coordinates or path_coords
-      if (leg.decoded_coordinates && leg.decoded_coordinates.length > 0) {
-        coords = leg.decoded_coordinates.map((c) => ({ lat: c[0], lng: c[1] }));
-      } else if (leg.path_coords && leg.path_coords.length > 0) {
-        coords = leg.path_coords.map((c) => ({ lat: c[0], lng: c[1] }));
-      } else if (leg.encoded_polyline && window.google?.maps?.geometry?.encoding) {
-        coords = google.maps.geometry.encoding.decodePath(leg.encoded_polyline).map((p) => ({
-          lat: p.lat(),
-          lng: p.lng(),
-        }));
-      } else if (leg.start_location && leg.end_location) {
-        coords = [
-          { lat: leg.start_location.latitude, lng: leg.start_location.longitude },
-          { lat: leg.end_location.latitude, lng: leg.end_location.longitude },
-        ];
-      }
+        // Check decoded_coordinates or path_coords
+        if (leg.decoded_coordinates && leg.decoded_coordinates.length > 0) {
+          coords = leg.decoded_coordinates.map((c) => ({ lat: c[0], lng: c[1] }));
+        } else if (leg.path_coords && leg.path_coords.length > 0) {
+          coords = leg.path_coords.map((c) => ({ lat: c[0], lng: c[1] }));
+        } else if (leg.encoded_polyline && window.google?.maps?.geometry?.encoding) {
+          coords = google.maps.geometry.encoding.decodePath(leg.encoded_polyline).map((p) => ({
+            lat: p.lat(),
+            lng: p.lng(),
+          }));
+        } else if (leg.start_location && leg.end_location) {
+          coords = [
+            { lat: leg.start_location.latitude, lng: leg.start_location.longitude },
+            { lat: leg.end_location.latitude, lng: leg.end_location.longitude },
+          ];
+        }
 
-      if (coords.length === 0) return;
-      coords.forEach((p) => bounds.extend(p));
+        if (coords.length === 0) return;
+        coords.forEach((p) => bounds.extend(p));
 
-      const color = getSegmentColor(leg.mode, leg.line_color);
-      const weight = getSegmentWeight(leg.mode);
-      const isWalk = leg.mode === "WALK";
+        const color = getSegmentColor(leg.mode, leg.line_color);
+        const weight = getSegmentWeight(leg.mode);
+        const isWalk = leg.mode === "WALK";
 
-      const poly = new google.maps.Polyline({
-        path: coords,
-        strokeColor: color,
-        strokeOpacity: isWalk ? 0 : 0.95,
-        strokeWeight: weight,
-        icons: isWalk
-          ? [
-              {
-                icon: {
-                  path: "M 0,-1 0,1",
-                  strokeOpacity: 1,
-                  strokeColor: "#EA580C",
-                  scale: 3,
+        const poly = new google.maps.Polyline({
+          path: coords,
+          strokeColor: color,
+          strokeOpacity: isWalk ? 0 : 0.95,
+          strokeWeight: weight,
+          icons: isWalk
+            ? [
+                {
+                  icon: {
+                    path: "M 0,-1 0,1",
+                    strokeOpacity: 1,
+                    strokeColor: "#EA580C",
+                    scale: 3,
+                  },
+                  offset: "0",
+                  repeat: "16px",
                 },
-                offset: "0",
-                repeat: "16px",
-              },
-            ]
-          : [
-              // Direction indicator arrow at midpoint of leg
-              {
-                icon: {
-                  path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW,
-                  scale: 2.5,
-                  strokeColor: "#ffffff",
-                  strokeWeight: 1,
-                  fillColor: color,
-                  fillOpacity: 1,
+              ]
+            : [
+                // Direction indicator arrow at midpoint of leg
+                {
+                  icon: {
+                    path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW,
+                    scale: 2.5,
+                    strokeColor: "#ffffff",
+                    strokeWeight: 1,
+                    fillColor: color,
+                    fillOpacity: 1,
+                  },
+                  offset: "50%",
                 },
-                offset: "50%",
-              },
-            ],
-        map,
-        geodesic: true,
+              ],
+          map,
+          geodesic: true,
+        });
+
+        // Leg Click Popup Info
+        poly.addListener("click", (e: google.maps.MapMouseEvent) => {
+          const distKm = (leg.distance_meters ? leg.distance_meters / 1000 : (leg.distance_km || 0)).toFixed(2);
+          const durMin = Math.round(leg.duration_seconds ? leg.duration_seconds / 60 : (leg.duration_min || 0));
+          const fare = Math.round(leg.fare ?? (leg.fare_inr || 0));
+
+          infoWindow.setContent(`
+            <div style="font-family: system-ui, sans-serif; padding: 6px 2px; font-size: 12px; max-width: 240px;">
+              <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">
+                <span style="display:inline-block;width:10px;height:10px;background:${color};border-radius:50%;"></span>
+                <strong style="color: #0f172a; font-size: 13px;">${index + 1}. ${leg.mode} (${leg.provider})</strong>
+              </div>
+              <div style="color: #475569; font-size: 11px; margin-bottom: 4px;">
+                ${leg.start_location?.name || leg.from_name || "Origin"} → ${leg.end_location?.name || leg.to_name || "Destination"}
+              </div>
+              <div style="color: #64748b; font-size: 11px; font-weight: 500;">
+                ${distKm} km • ${durMin} min • ${fare > 0 ? `₹${fare}` : "Free"}
+              </div>
+              ${leg.instructions ? `<div style="color: #94a3b8; font-size: 10px; margin-top: 4px; font-style: italic;">${leg.instructions}</div>` : ""}
+            </div>
+          `);
+          infoWindow.setPosition(e.latLng);
+          infoWindow.open(map);
+        });
+
+        polylinesRef.current.push(poly);
       });
+    }
 
-      // Leg Click Popup Info
-      poly.addListener("click", (e: google.maps.MapMouseEvent) => {
-        const distKm = (leg.distance_meters ? leg.distance_meters / 1000 : (leg.distance_km || 0)).toFixed(2);
-        const durMin = Math.round(leg.duration_seconds ? leg.duration_seconds / 60 : (leg.duration_min || 0));
-        const fare = Math.round(leg.fare ?? (leg.fare_inr || 0));
+    // 2. Green Pickup Marker at origin (Draggable)
+    const pLat = pickupLocation?.latitude ?? (legs[0]?.decoded_coordinates?.[0]?.[0] || legs[0]?.start_location?.latitude);
+    const pLon = pickupLocation?.longitude ?? (legs[0]?.decoded_coordinates?.[0]?.[1] || legs[0]?.start_location?.longitude);
+    const pAddress = pickupLocation?.formatted_address || pickupLocation?.name || legs[0]?.start_location?.name || "Pickup Location";
 
-        infoWindow.setContent(`
-          <div style="font-family: system-ui, sans-serif; padding: 6px 2px; font-size: 12px; max-width: 240px;">
-            <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">
-              <span style="display:inline-block;width:10px;height:10px;background:${color};border-radius:50%;"></span>
-              <strong style="color: #0f172a; font-size: 13px;">${index + 1}. ${leg.mode} (${leg.provider})</strong>
-            </div>
-            <div style="color: #475569; font-size: 11px; margin-bottom: 4px;">
-              ${leg.start_location?.name || leg.from_name || "Origin"} → ${leg.end_location?.name || leg.to_name || "Destination"}
-            </div>
-            <div style="color: #64748b; font-size: 11px; font-weight: 500;">
-              ${distKm} km • ${durMin} min • ${fare > 0 ? `₹${fare}` : "Free"}
-            </div>
-            ${leg.instructions ? `<div style="color: #94a3b8; font-size: 10px; margin-top: 4px; font-style: italic;">${leg.instructions}</div>` : ""}
-          </div>
-        `);
-        infoWindow.setPosition(e.latLng);
-        infoWindow.open(map);
-      });
-
-      polylinesRef.current.push(poly);
-    });
-
-    // 2. Green Pickup Marker at origin of Leg 0 (Draggable)
-    const firstLeg = legs[0];
-    const firstCoords = firstLeg.decoded_coordinates?.[0] ||
-      firstLeg.path_coords?.[0] || [firstLeg.start_location?.latitude, firstLeg.start_location?.longitude];
-
-    if (firstCoords && firstCoords[0] && firstCoords[1]) {
+    if (pLat !== undefined && pLon !== undefined && !isNaN(pLat) && !isNaN(pLon)) {
       const originMarker = new google.maps.Marker({
-        position: { lat: firstCoords[0], lng: firstCoords[1] },
+        position: { lat: pLat, lng: pLon },
         map,
         draggable: true,
-        title: `Pickup: ${firstLeg.start_location?.name || firstLeg.from_name || "Pickup Point"} (Drag to move)`,
+        title: `Pickup: ${pAddress} (Drag to move)`,
         icon: {
           path: google.maps.SymbolPath.CIRCLE,
           scale: 10,
@@ -458,29 +460,35 @@ export const MapView: React.FC<Props> = ({ selectedRoute }) => {
 
       originMarker.addListener("click", () => {
         infoWindow.setContent(`
-          <div style="font-family: system-ui, sans-serif; padding: 4px; font-size: 12px;">
+          <div style="font-family: system-ui, sans-serif; padding: 4px; font-size: 12px; max-width: 240px;">
             <strong style="color: #059669;">🟢 Pickup Location (Draggable)</strong><br/>
-            ${firstLeg.start_location?.name || firstLeg.from_name}
+            <div style="margin-top: 3px; font-weight: 600; color: #1e293b;">${pAddress}</div>
+            <div style="margin-top: 2px; font-size: 10px; color: #64748b; font-family: monospace;">${pLat.toFixed(6)}, ${pLon.toFixed(6)}</div>
           </div>
         `);
         infoWindow.open(map, originMarker);
       });
       markersRef.current.push(originMarker);
+      bounds.extend({ lat: pLat, lng: pLon });
     }
 
     // 3. Red Destination Marker at destination of last leg (Draggable)
-    const lastLeg = legs[legs.length - 1];
-    const lastCoordsArr = lastLeg.decoded_coordinates || lastLeg.path_coords || [];
+    const lastLeg = legs.length > 0 ? legs[legs.length - 1] : null;
+    const lastCoordsArr = lastLeg?.decoded_coordinates || lastLeg?.path_coords || [];
     const lastPoint = lastCoordsArr.length > 0
       ? lastCoordsArr[lastCoordsArr.length - 1]
-      : [lastLeg.end_location?.latitude, lastLeg.end_location?.longitude];
+      : [lastLeg?.end_location?.latitude, lastLeg?.end_location?.longitude];
 
-    if (lastPoint && lastPoint[0] && lastPoint[1]) {
+    const dLat = destLocation?.latitude ?? (lastPoint?.[0] as number | undefined);
+    const dLon = destLocation?.longitude ?? (lastPoint?.[1] as number | undefined);
+    const dAddress = destLocation?.formatted_address || destLocation?.name || lastLeg?.end_location?.name || "Final Destination";
+
+    if (dLat !== undefined && dLon !== undefined && !isNaN(dLat) && !isNaN(dLon)) {
       const destMarker = new google.maps.Marker({
-        position: { lat: lastPoint[0], lng: lastPoint[1] },
+        position: { lat: dLat, lng: dLon },
         map,
         draggable: true,
-        title: `Destination: ${lastLeg.end_location?.name || lastLeg.to_name || "Destination"} (Drag to move)`,
+        title: `Destination: ${dAddress} (Drag to move)`,
         icon: {
           path: google.maps.SymbolPath.CIRCLE,
           scale: 10,
@@ -502,14 +510,16 @@ export const MapView: React.FC<Props> = ({ selectedRoute }) => {
 
       destMarker.addListener("click", () => {
         infoWindow.setContent(`
-          <div style="font-family: system-ui, sans-serif; padding: 4px; font-size: 12px;">
+          <div style="font-family: system-ui, sans-serif; padding: 4px; font-size: 12px; max-width: 240px;">
             <strong style="color: #dc2626;">🔴 Final Destination (Draggable)</strong><br/>
-            ${lastLeg.end_location?.name || lastLeg.to_name}
+            <div style="margin-top: 3px; font-weight: 600; color: #1e293b;">${dAddress}</div>
+            <div style="margin-top: 2px; font-size: 10px; color: #64748b; font-family: monospace;">${dLat.toFixed(6)}, ${dLon.toFixed(6)}</div>
           </div>
         `);
         infoWindow.open(map, destMarker);
       });
       markersRef.current.push(destMarker);
+      bounds.extend({ lat: dLat, lng: dLon });
     }
 
     // Live GPS Marker if active
@@ -519,7 +529,7 @@ export const MapView: React.FC<Props> = ({ selectedRoute }) => {
       const gpsMarker = new google.maps.Marker({
         position: { lat: gpsLat, lng: gpsLng },
         map,
-        title: `Current Location: ${currentGPSLocation.name || "GPS"}`,
+        title: `Current Location: ${currentGPSLocation.formatted_address || currentGPSLocation.name || "GPS"}`,
         icon: {
           path: google.maps.SymbolPath.CIRCLE,
           scale: 8,
@@ -589,64 +599,71 @@ export const MapView: React.FC<Props> = ({ selectedRoute }) => {
     }
 
     // 5. Fit bounds to contain the entire journey
-    map.fitBounds(bounds, { top: 60, right: 40, bottom: 40, left: 40 });
-  }, [selectedRoute]);
+    try {
+      if (!bounds.isEmpty()) {
+        map.fitBounds(bounds, { top: 60, right: 40, bottom: 40, left: 40 });
+      }
+    } catch {
+      // ignore
+    }
+  }, [selectedRoute, pickupLocation, destLocation, currentGPSLocation, setPickupLocation, setDestLocation]);
 
   // ─── Render Leaflet Route (Resilient Fallback & Alternative) ───────────────
   const renderLeafletRoute = useCallback(() => {
     const lmap = leafletMapRef.current;
     const layerGroup = leafletLayersRef.current;
-    if (!lmap || !layerGroup || !selectedRoute) return;
+    if (!lmap || !layerGroup) return;
 
     clearLeafletOverlays();
     const legs = getLegs(selectedRoute);
-    if (legs.length === 0) return;
-
     const latLngsBounds: [number, number][] = [];
 
-    legs.forEach((leg, index) => {
-      let coords: [number, number][] = [];
+    // 1. Draw legs polylines
+    if (legs.length > 0) {
+      legs.forEach((leg, index) => {
+        let coords: [number, number][] = [];
 
-      if (leg.decoded_coordinates && leg.decoded_coordinates.length > 0) {
-        coords = leg.decoded_coordinates.map((c) => [c[0], c[1]]);
-      } else if (leg.path_coords && leg.path_coords.length > 0) {
-        coords = leg.path_coords.map((c) => [c[0], c[1]]);
-      } else if (leg.start_location && leg.end_location) {
-        coords = [
-          [leg.start_location.latitude, leg.start_location.longitude],
-          [leg.end_location.latitude, leg.end_location.longitude],
-        ];
-      }
+        if (leg.decoded_coordinates && leg.decoded_coordinates.length > 0) {
+          coords = leg.decoded_coordinates.map((c) => [c[0], c[1]]);
+        } else if (leg.path_coords && leg.path_coords.length > 0) {
+          coords = leg.path_coords.map((c) => [c[0], c[1]]);
+        } else if (leg.start_location && leg.end_location) {
+          coords = [
+            [leg.start_location.latitude, leg.start_location.longitude],
+            [leg.end_location.latitude, leg.end_location.longitude],
+          ];
+        }
 
-      if (coords.length === 0) return;
-      coords.forEach((p) => latLngsBounds.push(p));
+        if (coords.length === 0) return;
+        coords.forEach((p) => latLngsBounds.push(p));
 
-      const color = getSegmentColor(leg.mode, leg.line_color);
-      const isWalk = leg.mode === "WALK";
+        const color = getSegmentColor(leg.mode, leg.line_color);
+        const isWalk = leg.mode === "WALK";
 
-      const poly = L.polyline(coords, {
-        color,
-        weight: getSegmentWeight(leg.mode),
-        opacity: isWalk ? 0.9 : 0.95,
-        dashArray: isWalk ? "6, 8" : undefined,
+        const poly = L.polyline(coords, {
+          color,
+          weight: getSegmentWeight(leg.mode),
+          opacity: isWalk ? 0.9 : 0.95,
+          dashArray: isWalk ? "6, 8" : undefined,
+        });
+
+        const distKm = (leg.distance_meters ? leg.distance_meters / 1000 : (leg.distance_km || 0)).toFixed(2);
+        const durMin = Math.round(leg.duration_seconds ? leg.duration_seconds / 60 : (leg.duration_min || 0));
+        const fare = Math.round(leg.fare ?? (leg.fare_inr || 0));
+
+        poly.bindPopup(`
+          <div style="font-family: system-ui, sans-serif; font-size: 12px; min-width: 180px;">
+            <strong style="color: ${color};">${index + 1}. ${leg.mode} (${leg.provider})</strong><br/>
+            <span>${leg.start_location?.name || leg.from_name} → ${leg.end_location?.name || leg.to_name}</span><br/>
+            <small style="color: #64748b;">${distKm} km • ${durMin} min • ₹${fare}</small>
+          </div>
+        `);
+
+        layerGroup.addLayer(poly);
       });
+    }
 
-      const distKm = (leg.distance_meters ? leg.distance_meters / 1000 : (leg.distance_km || 0)).toFixed(2);
-      const durMin = Math.round(leg.duration_seconds ? leg.duration_seconds / 60 : (leg.duration_min || 0));
-      const fare = Math.round(leg.fare ?? (leg.fare_inr || 0));
-
-      poly.bindPopup(`
-        <div style="font-family: system-ui, sans-serif; font-size: 12px; min-width: 180px;">
-          <strong style="color: ${color};">${index + 1}. ${leg.mode} (${leg.provider})</strong><br/>
-          <span>${leg.start_location?.name || leg.from_name} → ${leg.end_location?.name || leg.to_name}</span><br/>
-          <small style="color: #64748b;">${distKm} km • ${durMin} min • ₹${fare}</small>
-        </div>
-      `);
-
-      layerGroup.addLayer(poly);
-    });
-
-    // Render current GPS Location if available
+    // 2. Render current GPS Location if available
     if (currentGPSLocation) {
       const gpsLat = currentGPSLocation.latitude;
       const gpsLon = currentGPSLocation.longitude;
@@ -654,7 +671,7 @@ export const MapView: React.FC<Props> = ({ selectedRoute }) => {
 
       const gpsMarker = L.marker([gpsLat, gpsLon], {
         icon: createGpsIcon(),
-      }).bindPopup(`<strong>📍 Your Current Location</strong><br/>${currentGPSLocation.name || currentGPSLocation.formatted_address}`);
+      }).bindPopup(`<strong>📍 Your Current Location</strong><br/>${currentGPSLocation.formatted_address || currentGPSLocation.name}<br/><span style="color:#64748b;font-size:10px;">${gpsLat.toFixed(6)}, ${gpsLon.toFixed(6)}</span>`);
       layerGroup.addLayer(gpsMarker);
 
       const gpsCircle = L.circle([gpsLat, gpsLon], {
@@ -668,17 +685,22 @@ export const MapView: React.FC<Props> = ({ selectedRoute }) => {
       latLngsBounds.push([gpsLat, gpsLon]);
     }
 
-    // Pickup Marker (Draggable Pin)
-    const firstLeg = legs[0];
-    const firstPoint = firstLeg.decoded_coordinates?.[0] || firstLeg.path_coords?.[0] || [
-      firstLeg.start_location?.latitude ?? 0,
-      firstLeg.start_location?.longitude ?? 0,
-    ];
-    if (firstPoint && typeof firstPoint[0] === "number" && typeof firstPoint[1] === "number" && firstPoint[0] !== 0) {
-      const origMarker = L.marker([firstPoint[0], firstPoint[1]], {
+    // 3. Pickup Marker (Draggable Pin)
+    const pLat = pickupLocation?.latitude ?? (legs[0]?.decoded_coordinates?.[0]?.[0] || legs[0]?.start_location?.latitude);
+    const pLon = pickupLocation?.longitude ?? (legs[0]?.decoded_coordinates?.[0]?.[1] || legs[0]?.start_location?.longitude);
+    const pAddress = pickupLocation?.formatted_address || pickupLocation?.name || legs[0]?.start_location?.name || "Pickup Location";
+
+    if (pLat !== undefined && pLon !== undefined && !isNaN(pLat) && !isNaN(pLon)) {
+      const origMarker = L.marker([pLat, pLon], {
         draggable: true,
         icon: createPinIcon("#10B981", "P"),
-      }).bindPopup(`<strong>🟢 Pickup (Drag to adjust)</strong><br/>${firstLeg.start_location?.name || firstLeg.from_name}`);
+      }).bindPopup(`
+        <div style="font-family: system-ui, sans-serif; font-size: 12px; min-width: 170px;">
+          <strong style="color: #059669;">🟢 Pickup Location (Draggable)</strong><br/>
+          <div style="margin-top: 3px; font-weight: 600; color: #1e293b;">${pAddress}</div>
+          <div style="margin-top: 2px; font-size: 10px; color: #64748b; font-family: monospace;">${pLat.toFixed(6)}, ${pLon.toFixed(6)}</div>
+        </div>
+      `);
 
       origMarker.on("dragend", async () => {
         const pos = origMarker.getLatLng();
@@ -686,19 +708,31 @@ export const MapView: React.FC<Props> = ({ selectedRoute }) => {
         setPickupLocation(loc);
       });
       layerGroup.addLayer(origMarker);
+      latLngsBounds.push([pLat, pLon]);
     }
 
-    // Destination Marker (Draggable Pin)
-    const lastLeg = legs[legs.length - 1];
-    const lastArr = lastLeg.decoded_coordinates || lastLeg.path_coords || [];
+    // 4. Destination Marker (Draggable Pin)
+    const lastLeg = legs.length > 0 ? legs[legs.length - 1] : null;
+    const lastArr = lastLeg?.decoded_coordinates || lastLeg?.path_coords || [];
     const lastPoint = lastArr.length > 0
       ? lastArr[lastArr.length - 1]
-      : [lastLeg.end_location?.latitude ?? 0, lastLeg.end_location?.longitude ?? 0];
-    if (lastPoint && typeof lastPoint[0] === "number" && typeof lastPoint[1] === "number" && lastPoint[0] !== 0) {
-      const destMarker = L.marker([lastPoint[0], lastPoint[1]], {
+      : [lastLeg?.end_location?.latitude, lastLeg?.end_location?.longitude];
+
+    const dLat = destLocation?.latitude ?? (lastPoint?.[0] as number | undefined);
+    const dLon = destLocation?.longitude ?? (lastPoint?.[1] as number | undefined);
+    const dAddress = destLocation?.formatted_address || destLocation?.name || lastLeg?.end_location?.name || "Final Destination";
+
+    if (dLat !== undefined && dLon !== undefined && !isNaN(dLat) && !isNaN(dLon)) {
+      const destMarker = L.marker([dLat, dLon], {
         draggable: true,
         icon: createPinIcon("#EF4444", "D"),
-      }).bindPopup(`<strong>🔴 Destination (Drag to adjust)</strong><br/>${lastLeg.end_location?.name || lastLeg.to_name}`);
+      }).bindPopup(`
+        <div style="font-family: system-ui, sans-serif; font-size: 12px; min-width: 170px;">
+          <strong style="color: #dc2626;">🔴 Final Destination (Draggable)</strong><br/>
+          <div style="margin-top: 3px; font-weight: 600; color: #1e293b;">${dAddress}</div>
+          <div style="margin-top: 2px; font-size: 10px; color: #64748b; font-family: monospace;">${dLat.toFixed(6)}, ${dLon.toFixed(6)}</div>
+        </div>
+      `);
 
       destMarker.on("dragend", async () => {
         const pos = destMarker.getLatLng();
@@ -706,9 +740,10 @@ export const MapView: React.FC<Props> = ({ selectedRoute }) => {
         setDestLocation(loc);
       });
       layerGroup.addLayer(destMarker);
+      latLngsBounds.push([dLat, dLon]);
     }
 
-    // Transfers
+    // 5. Transfers
     if (legs.length > 1) {
       for (let i = 0; i < legs.length - 1; i++) {
         const cur = legs[i];
@@ -731,7 +766,7 @@ export const MapView: React.FC<Props> = ({ selectedRoute }) => {
     if (latLngsBounds.length > 0) {
       lmap.fitBounds(L.latLngBounds(latLngsBounds), { padding: [40, 40] });
     }
-  }, [selectedRoute]);
+  }, [selectedRoute, pickupLocation, destLocation, currentGPSLocation, setPickupLocation, setDestLocation]);
 
   // ─── Trigger Rendering Based on Active Engine ─────────────────────────────
   useEffect(() => {
@@ -746,7 +781,7 @@ export const MapView: React.FC<Props> = ({ selectedRoute }) => {
         }
       }, 50);
     }
-  }, [selectedRoute, mapEngine, mapLoaded, renderGoogleRoute, renderLeafletRoute]);
+  }, [selectedRoute, pickupLocation, destLocation, mapEngine, mapLoaded, renderGoogleRoute, renderLeafletRoute]);
 
   return (
     <div className="relative w-full h-[520px] lg:h-[680px] rounded-3xl overflow-hidden border border-slate-200/90 shadow-xs bg-white flex flex-col">

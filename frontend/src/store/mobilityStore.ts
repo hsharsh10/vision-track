@@ -23,6 +23,22 @@ interface LiveDataStatus {
   liveTravelDistanceKm: number | null;
 }
 
+export const defaultPickupLocation: StandardizedLocation = {
+  name: "Connaught Place",
+  formatted_address: "Connaught Place, New Delhi, Delhi 110001, India",
+  latitude: 28.6328,
+  longitude: 77.2197,
+  source: "MANUAL_ADDRESS",
+};
+
+export const defaultDestLocation: StandardizedLocation = {
+  name: "Karol Bagh",
+  formatted_address: "Karol Bagh, New Delhi, Delhi 110005, India",
+  latitude: 28.6443,
+  longitude: 77.1903,
+  source: "MANUAL_ADDRESS",
+};
+
 interface MobilityState {
   searchQuery: SearchRequest;
   searchResult: SearchResponse | null;
@@ -37,7 +53,7 @@ interface MobilityState {
   locationError: string | null;
   liveData: LiveDataStatus;
 
-  // Dynamic Location System State
+  // Single Source of Truth for Dynamic Locations
   pickupLocation: StandardizedLocation | null;
   destLocation: StandardizedLocation | null;
   currentGPSLocation: StandardizedLocation | null;
@@ -48,6 +64,8 @@ interface MobilityState {
   setSearchQuery: (query: Partial<SearchRequest>) => void;
   setPickupLocation: (loc: StandardizedLocation) => void;
   setDestLocation: (loc: StandardizedLocation) => void;
+  clearPickupLocation: () => void;
+  clearDestLocation: () => void;
   setCurrentGPSLocation: (loc: StandardizedLocation | null) => void;
   openLocationPicker: (target: "origin" | "dest") => void;
   closeLocationPicker: () => void;
@@ -66,12 +84,14 @@ interface MobilityState {
 }
 
 const defaultQuery: SearchRequest = {
-  origin_name: "Connaught Place",
-  origin_lat: 28.6328,
-  origin_lon: 77.2197,
-  dest_name: "Karol Bagh",
-  dest_lat: 28.6443,
-  dest_lon: 77.1903,
+  origin_name: defaultPickupLocation.formatted_address,
+  origin_lat: defaultPickupLocation.latitude,
+  origin_lon: defaultPickupLocation.longitude,
+  pickup: defaultPickupLocation,
+  dest_name: defaultDestLocation.formatted_address,
+  dest_lat: defaultDestLocation.latitude,
+  dest_lon: defaultDestLocation.longitude,
+  destination: defaultDestLocation,
   travel_date: "12-11-2026",
   travel_time: "12:39",
   passenger_count: 1,
@@ -106,9 +126,9 @@ export const useMobilityStore = create<MobilityState>((set, get) => ({
   locationError: null,
   liveData: defaultLiveData,
 
-  // Dynamic Location State
-  pickupLocation: null,
-  destLocation: null,
+  // Single Source of Truth initialized with complete objects
+  pickupLocation: defaultPickupLocation,
+  destLocation: defaultDestLocation,
   currentGPSLocation: null,
   isPickerOpen: false,
   pickerTarget: "origin",
@@ -119,11 +139,13 @@ export const useMobilityStore = create<MobilityState>((set, get) => ({
     })),
 
   setPickupLocation: (loc) => {
+    // Primary display is ALWAYS the full formatted address
+    const fullAddress = loc.formatted_address || loc.name || "Selected Pickup";
     set((state) => ({
       pickupLocation: loc,
       searchQuery: {
         ...state.searchQuery,
-        origin_name: loc.name || loc.formatted_address || "Selected Pickup",
+        origin_name: fullAddress,
         origin_lat: loc.latitude,
         origin_lon: loc.longitude,
         pickup: loc,
@@ -134,11 +156,13 @@ export const useMobilityStore = create<MobilityState>((set, get) => ({
   },
 
   setDestLocation: (loc) => {
+    // Primary display is ALWAYS the full formatted address
+    const fullAddress = loc.formatted_address || loc.name || "Selected Destination";
     set((state) => ({
       destLocation: loc,
       searchQuery: {
         ...state.searchQuery,
-        dest_name: loc.name || loc.formatted_address || "Selected Destination",
+        dest_name: fullAddress,
         dest_lat: loc.latitude,
         dest_lon: loc.longitude,
         destination: loc,
@@ -146,6 +170,34 @@ export const useMobilityStore = create<MobilityState>((set, get) => ({
       locationError: null,
     }));
     get().executeSearch();
+  },
+
+  clearPickupLocation: () => {
+    set((state) => ({
+      pickupLocation: null,
+      searchQuery: {
+        ...state.searchQuery,
+        origin_name: "",
+        origin_lat: undefined,
+        origin_lon: undefined,
+        pickup: undefined,
+      },
+      locationError: null,
+    }));
+  },
+
+  clearDestLocation: () => {
+    set((state) => ({
+      destLocation: null,
+      searchQuery: {
+        ...state.searchQuery,
+        dest_name: "",
+        dest_lat: undefined,
+        dest_lon: undefined,
+        destination: undefined,
+      },
+      locationError: null,
+    }));
   },
 
   setCurrentGPSLocation: (loc) => set({ currentGPSLocation: loc }),
@@ -177,30 +229,50 @@ export const useMobilityStore = create<MobilityState>((set, get) => ({
     const q = get().searchQuery;
     const pLoc = get().pickupLocation;
     const dLoc = get().destLocation;
+
+    const newPickup = dLoc;
+    const newDest = pLoc;
+
+    const newOriginName = newPickup
+      ? newPickup.formatted_address || newPickup.name
+      : q.dest_name;
+    const newDestName = newDest
+      ? newDest.formatted_address || newDest.name
+      : q.origin_name;
+
     set({
-      pickupLocation: dLoc,
-      destLocation: pLoc,
+      pickupLocation: newPickup,
+      destLocation: newDest,
       searchQuery: {
         ...q,
-        origin_name: q.dest_name,
-        origin_lat: q.dest_lat,
-        origin_lon: q.dest_lon,
-        dest_name: q.origin_name,
-        dest_lat: q.origin_lat,
-        dest_lon: q.origin_lon,
-        pickup: dLoc || undefined,
-        destination: pLoc || undefined,
+        origin_name: newOriginName,
+        origin_lat: newPickup?.latitude ?? q.dest_lat,
+        origin_lon: newPickup?.longitude ?? q.dest_lon,
+        dest_name: newDestName,
+        dest_lat: newDest?.latitude ?? q.origin_lat,
+        dest_lon: newDest?.longitude ?? q.origin_lon,
+        pickup: newPickup || undefined,
+        destination: newDest || undefined,
       },
+      locationError: null,
     });
     get().executeSearch();
   },
 
   clearSearch: () => {
     set((state) => ({
+      pickupLocation: null,
+      destLocation: null,
       searchQuery: {
         ...state.searchQuery,
         origin_name: "",
+        origin_lat: undefined,
+        origin_lon: undefined,
+        pickup: undefined,
         dest_name: "",
+        dest_lat: undefined,
+        dest_lon: undefined,
+        destination: undefined,
       },
       searchResult: null,
       selectedRoute: null,
@@ -213,10 +285,18 @@ export const useMobilityStore = create<MobilityState>((set, get) => ({
   loadSampleRoute: (sample = "connaught_karol") => {
     if (sample === "connaught_karol") {
       set({
+        pickupLocation: defaultPickupLocation,
+        destLocation: defaultDestLocation,
         searchQuery: {
           ...defaultQuery,
-          origin_name: "Connaught Place",
-          dest_name: "Karol Bagh",
+          origin_name: defaultPickupLocation.formatted_address,
+          origin_lat: defaultPickupLocation.latitude,
+          origin_lon: defaultPickupLocation.longitude,
+          pickup: defaultPickupLocation,
+          dest_name: defaultDestLocation.formatted_address,
+          dest_lat: defaultDestLocation.latitude,
+          dest_lon: defaultDestLocation.longitude,
+          destination: defaultDestLocation,
           travel_time: "12:39",
           mode_preference: "all",
         },
@@ -224,13 +304,26 @@ export const useMobilityStore = create<MobilityState>((set, get) => ({
         locationError: null,
       });
     } else {
+      const cyberHubLoc: StandardizedLocation = {
+        name: "DLF Cyber City, Phase 2 Gurugram",
+        formatted_address: "DLF Cyber City, DLF Phase 2, Sector 24, Gurugram, Haryana 122002, India",
+        latitude: 28.4967,
+        longitude: 77.0903,
+        source: "PLACES_AUTOCOMPLETE",
+      };
       set({
+        pickupLocation: defaultPickupLocation,
+        destLocation: cyberHubLoc,
         searchQuery: {
           ...defaultQuery,
-          origin_name: "Connaught Place",
-          dest_name: "DLF Cyber City, Gurugram",
-          dest_lat: 28.4967,
-          dest_lon: 77.0903,
+          origin_name: defaultPickupLocation.formatted_address,
+          origin_lat: defaultPickupLocation.latitude,
+          origin_lon: defaultPickupLocation.longitude,
+          pickup: defaultPickupLocation,
+          dest_name: cyberHubLoc.formatted_address,
+          dest_lat: cyberHubLoc.latitude,
+          dest_lon: cyberHubLoc.longitude,
+          destination: cyberHubLoc,
           travel_time: "12:39",
           mode_preference: "all",
         },
@@ -244,7 +337,12 @@ export const useMobilityStore = create<MobilityState>((set, get) => ({
   // ── Live Google Maps Data Fetch ──────────────────────────────────────────
   fetchLiveGoogleData: async () => {
     const q = get().searchQuery;
-    if (!q.origin_lat || !q.dest_lat) return;
+    const oLat = get().pickupLocation?.latitude ?? q.origin_lat;
+    const oLon = get().pickupLocation?.longitude ?? q.origin_lon;
+    const dLat = get().destLocation?.latitude ?? q.dest_lat;
+    const dLon = get().destLocation?.longitude ?? q.dest_lon;
+
+    if (!oLat || !dLat || !oLon || !dLon) return;
 
     try {
       const mapsOk = await loadGoogleMapsScript(GOOGLE_MAPS_KEY);
@@ -254,8 +352,8 @@ export const useMobilityStore = create<MobilityState>((set, get) => ({
         }));
       }
       const liveResult = await fetchLiveDirections(
-        q.origin_lat, q.origin_lon,
-        q.dest_lat, q.dest_lon,
+        oLat, oLon,
+        dLat, dLon,
         "DRIVING"
       );
 
@@ -278,19 +376,54 @@ export const useMobilityStore = create<MobilityState>((set, get) => ({
   // ── Main Route Search ────────────────────────────────────────────────────
   executeSearch: async () => {
     const query = get().searchQuery;
-    if (!query.origin_name || !query.dest_name) {
+    const pLoc = get().pickupLocation;
+    const dLoc = get().destLocation;
+
+    const originName = pLoc?.formatted_address || query.origin_name;
+    const destName = dLoc?.formatted_address || query.dest_name;
+
+    if (!originName || !destName) {
       set({ hasSearched: false, searchResult: null });
       return;
     }
 
-    set({ isLoading: true, error: null, hasSearched: true });
+    const oLat = pLoc?.latitude ?? query.origin_lat;
+    const oLon = pLoc?.longitude ?? query.origin_lon;
+    const dLat = dLoc?.latitude ?? query.dest_lat;
+    const dLon = dLoc?.longitude ?? query.dest_lon;
+
+    // Strict coordinate validation
+    if (
+      oLat === undefined || oLon === undefined ||
+      dLat === undefined || dLon === undefined ||
+      isNaN(oLat) || isNaN(oLon) || isNaN(dLat) || isNaN(dLon) ||
+      oLat < -90 || oLat > 90 || oLon < -180 || oLon > 180 ||
+      dLat < -90 || dLat > 90 || dLon < -180 || dLon > 180
+    ) {
+      set({ locationError: "Please select valid pickup and destination locations with verified coordinates." });
+      return;
+    }
+
+    const fullPayload: SearchRequest = {
+      ...query,
+      origin_name: originName,
+      origin_lat: oLat,
+      origin_lon: oLon,
+      pickup: pLoc || undefined,
+      dest_name: destName,
+      dest_lat: dLat,
+      dest_lon: dLon,
+      destination: dLoc || undefined,
+    };
+
+    set({ isLoading: true, error: null, locationError: null, hasSearched: true });
 
     // Fire live Google Maps data fetch in parallel (non-blocking)
     get().fetchLiveGoogleData();
 
     try {
-      // 1️⃣  Try live FastAPI backend
-      const result = await searchRoutes(query);
+      // 1️⃣  Try live FastAPI backend with exact coordinates & formatted addresses
+      const result = await searchRoutes(fullPayload);
       set({
         searchResult: result,
         isLoading: false,
@@ -300,7 +433,7 @@ export const useMobilityStore = create<MobilityState>((set, get) => ({
       });
     } catch {
       // 2️⃣  Graceful fallback to sample transit network
-      const fallbackResult = generateSampleRoutes(query);
+      const fallbackResult = generateSampleRoutes(fullPayload);
       set({
         searchResult: fallbackResult,
         isLoading: false,

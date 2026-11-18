@@ -6,61 +6,65 @@ import {
   Map,
   X,
   Clock,
-  Home,
-  Briefcase,
-  Star,
   Train,
   Plane,
   Building2,
   Store,
   Loader2,
-  Check,
   AlertCircle,
   ChevronRight,
-  Sparkles,
+  Copy,
+  Check,
 } from "lucide-react";
 import { StandardizedLocation, LocationSource } from "../types";
 import { locationService } from "../services/locationService";
 
 const POPULAR_HUBS: StandardizedLocation[] = [
   {
+    name: "Rohini Sector 7",
+    formatted_address: "Rohini Sector 7, Near Rohini West Metro Station, Delhi 110085, India",
+    latitude: 28.7041,
+    longitude: 77.1025,
+    source: "PLACES_AUTOCOMPLETE",
+  },
+  {
     name: "Connaught Place (Rajiv Chowk)",
-    formatted_address: "Connaught Place, New Delhi, Delhi 110001",
+    formatted_address: "Connaught Place, New Delhi, Delhi 110001, India",
     latitude: 28.6328,
     longitude: 77.2197,
     source: "PLACES_AUTOCOMPLETE",
   },
   {
     name: "DLF Cyber City, Gurugram",
-    formatted_address: "DLF Phase 2, Sector 24, Gurugram, Haryana 122002",
+    formatted_address: "DLF Cyber City, DLF Phase 2, Sector 24, Gurugram, Haryana 122002, India",
     latitude: 28.4952,
     longitude: 77.0894,
     source: "PLACES_AUTOCOMPLETE",
   },
   {
     name: "Noida Sector 18 (Atta Market)",
-    formatted_address: "Sector 18, Noida, Uttar Pradesh 201301",
+    formatted_address: "Sector 18, Noida, Gautam Buddha Nagar, Uttar Pradesh 201301, India",
     latitude: 28.5708,
     longitude: 77.3261,
     source: "PLACES_AUTOCOMPLETE",
   },
   {
     name: "AIIMS New Delhi",
-    formatted_address: "Sri Aurobindo Marg, Ansari Nagar, New Delhi 110029",
+    formatted_address: "Sri Aurobindo Marg, Ansari Nagar, New Delhi, Delhi 110029, India",
     latitude: 28.5672,
     longitude: 77.2100,
     source: "PLACES_AUTOCOMPLETE",
   },
   {
     name: "IGI Airport Terminal 3",
-    formatted_address: "Indira Gandhi International Airport, New Delhi 110037",
+    formatted_address: "Indira Gandhi International Airport, New Delhi, Delhi 110037, India",
     latitude: 28.5562,
     longitude: 77.0999,
     source: "PLACES_AUTOCOMPLETE",
   },
   {
     name: "Anand Vihar ISBT",
-    formatted_address: "Anand Vihar Inter-State Bus Terminus, Delhi 110092",
+    formatted_address: "Anand Vihar Inter-State Bus Terminus, Anand Vihar, Delhi 110092, India",
     latitude: 28.6469,
     longitude: 77.3160,
     source: "PLACES_AUTOCOMPLETE",
@@ -71,8 +75,10 @@ interface Props {
   label: string;
   placeholder: string;
   value: string;
+  location?: StandardizedLocation | null;
   onChangeText: (text: string) => void;
   onSelectLocation: (location: StandardizedLocation) => void;
+  onClearLocation?: () => void;
   onOpenMapPicker: () => void;
   isPickup?: boolean;
   viewportLat?: number;
@@ -83,8 +89,10 @@ export const LocationSearchInput: React.FC<Props> = ({
   label,
   placeholder,
   value,
+  location,
   onChangeText,
   onSelectLocation,
+  onClearLocation,
   onOpenMapPicker,
   isPickup = false,
   viewportLat,
@@ -93,7 +101,6 @@ export const LocationSearchInput: React.FC<Props> = ({
   const [isOpen, setIsOpen] = useState(false);
   const [suggestions, setSuggestions] = useState<StandardizedLocation[]>([]);
   const [recentLocations, setRecentLocations] = useState<StandardizedLocation[]>([]);
-  const [savedPlaces, setSavedPlaces] = useState<{ home?: StandardizedLocation; work?: StandardizedLocation }>({});
   const [isLoading, setIsLoading] = useState(false);
   const [isGPSLoading, setIsGPSLoading] = useState(false);
   const [gpsError, setGpsError] = useState<string | null>(null);
@@ -102,10 +109,9 @@ export const LocationSearchInput: React.FC<Props> = ({
   const inputRef = useRef<HTMLInputElement>(null);
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Load recents & saved on mount
+  // Load recents on mount
   useEffect(() => {
     setRecentLocations(locationService.getRecentLocations());
-    setSavedPlaces(locationService.getSavedPlaces());
   }, []);
 
   // Close dropdown on click outside
@@ -151,6 +157,26 @@ export const LocationSearchInput: React.FC<Props> = ({
     }, 260);
   };
 
+  // ─── Handle Enter Key to select top result or auto-resolve ─────────────────
+  const handleKeyDown = async (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      if (suggestions.length > 0) {
+        handleSelect(suggestions[0]);
+      } else if (value.trim().length > 1) {
+        setIsLoading(true);
+        try {
+          const results = await locationService.searchPlaces(value.trim(), viewportLat, viewportLon);
+          if (results.length > 0) {
+            handleSelect(results[0]);
+          }
+        } finally {
+          setIsLoading(false);
+        }
+      }
+    }
+  };
+
   // ─── GPS "Use Current Location" ───────────────────────────────────────────
   const handleUseGPS = async () => {
     setIsGPSLoading(true);
@@ -161,7 +187,7 @@ export const LocationSearchInput: React.FC<Props> = ({
       setIsOpen(false);
       setRecentLocations(locationService.getRecentLocations());
     } catch (err: any) {
-      setGpsError(err.message || "Failed to retrieve location.");
+      setGpsError(err.message || "Failed to retrieve accurate GPS location.");
     } finally {
       setIsGPSLoading(false);
     }
@@ -195,6 +221,8 @@ export const LocationSearchInput: React.FC<Props> = ({
     return <MapPin className="w-4 h-4 text-teal-600 shrink-0" />;
   };
 
+  const displayTooltip = location?.formatted_address || value || placeholder;
+
   return (
     <div
       ref={containerRef}
@@ -224,7 +252,7 @@ export const LocationSearchInput: React.FC<Props> = ({
         </div>
       </div>
 
-      {/* Input Field */}
+      {/* Input Field with full address hover tooltip */}
       <div className="relative flex items-center">
         <div className="absolute left-3.5 text-slate-400 pointer-events-none">
           <MapPin className={`w-4 h-4 ${isPickup ? "text-emerald-600" : "text-rose-500"}`} />
@@ -234,10 +262,12 @@ export const LocationSearchInput: React.FC<Props> = ({
           ref={inputRef}
           type="text"
           value={value}
+          title={displayTooltip}
           onChange={(e) => handleInputChange(e.target.value)}
+          onKeyDown={handleKeyDown}
           onFocus={() => setIsOpen(true)}
           placeholder={placeholder}
-          className="w-full bg-white border border-slate-200 rounded-xl pl-10 pr-16 py-2.5 text-xs sm:text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-teal-600 focus:ring-1 focus:ring-teal-600 transition shadow-2xs font-medium"
+          className="w-full bg-white border border-slate-200 rounded-xl pl-10 pr-20 py-2.5 text-xs sm:text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-teal-600 focus:ring-1 focus:ring-teal-600 transition shadow-2xs font-medium truncate"
         />
 
         {/* Right Action Icons: Spinner, Clear Button, GPS */}
@@ -248,12 +278,16 @@ export const LocationSearchInput: React.FC<Props> = ({
             <button
               type="button"
               onClick={() => {
-                onChangeText("");
+                if (onClearLocation) {
+                  onClearLocation();
+                } else {
+                  onChangeText("");
+                }
                 setSuggestions([]);
                 inputRef.current?.focus();
               }}
-              className="p-1 text-slate-400 hover:text-slate-600 transition cursor-pointer"
-              title="Clear input"
+              className="p-1 text-slate-400 hover:text-slate-600 transition cursor-pointer rounded-full"
+              title="Clear location"
             >
               <X className="w-3.5 h-3.5" />
             </button>
@@ -277,7 +311,26 @@ export const LocationSearchInput: React.FC<Props> = ({
         </div>
       </div>
 
-      {/* Error message */}
+      {/* Selected Location Coordinate Metadata Pill */}
+      {location && typeof location.latitude === "number" && typeof location.longitude === "number" && (
+        <div className="flex items-center justify-between text-[11px] text-slate-500 px-1 pt-0.5">
+          <div className="flex items-center gap-1.5 truncate max-w-[85%] font-mono text-[10px] text-slate-600">
+            <span className="w-1.5 h-1.5 rounded-full bg-teal-500 inline-block shrink-0"></span>
+            <span className="font-semibold text-slate-700">
+              {location.latitude.toFixed(4)}, {location.longitude.toFixed(4)}
+            </span>
+            <span className="text-slate-400">•</span>
+            <span className="truncate text-slate-500">{location.source.replace("_", " ")}</span>
+            {location.accuracy_meters && (
+              <span className="text-teal-700 bg-teal-50 px-1.5 py-0.2 rounded text-[9px] font-sans">
+                ±{Math.round(location.accuracy_meters)}m
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* GPS Error message if any */}
       {gpsError && (
         <div className="flex items-center gap-1.5 text-rose-600 text-[11px] pt-0.5">
           <AlertCircle className="w-3.5 h-3.5 shrink-0" />
@@ -350,7 +403,7 @@ export const LocationSearchInput: React.FC<Props> = ({
                     <div className="font-bold text-slate-900 group-hover:text-teal-900 truncate">
                       {loc.name}
                     </div>
-                    <div className="text-[11px] text-slate-500 line-clamp-1">
+                    <div className="text-[11px] text-slate-500 line-clamp-2">
                       {loc.formatted_address}
                     </div>
                   </div>
@@ -369,11 +422,16 @@ export const LocationSearchInput: React.FC<Props> = ({
                   onClick={() => handleSelect(hub)}
                   className="w-full text-left px-3.5 py-2.5 hover:bg-slate-50 transition flex items-center justify-between gap-3 cursor-pointer text-xs group"
                 >
-                  <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="flex items-center gap-2.5 min-w-0 flex-1">
                     <MapPin className="w-3.5 h-3.5 text-teal-600 shrink-0" />
-                    <span className="font-medium text-slate-800 group-hover:text-teal-900 truncate">
-                      {hub.name}
-                    </span>
+                    <div className="min-w-0 flex-1">
+                      <span className="font-medium text-slate-800 group-hover:text-teal-900 truncate block">
+                        {hub.name}
+                      </span>
+                      <span className="text-[10px] text-slate-400 truncate block">
+                        {hub.formatted_address}
+                      </span>
+                    </div>
                   </div>
                   <ChevronRight className="w-3.5 h-3.5 text-slate-400 group-hover:text-slate-600 shrink-0" />
                 </button>
@@ -386,7 +444,7 @@ export const LocationSearchInput: React.FC<Props> = ({
             <div className="p-4 text-center text-xs text-slate-400 space-y-1 bg-white">
               <p className="font-medium m-0">No matching locations found for "{value}"</p>
               <p className="text-[11px] text-slate-400 m-0">
-                Try searching a different landmark or choose directly on the map.
+                Press Enter or choose directly on the map.
               </p>
             </div>
           )}
@@ -408,7 +466,7 @@ export const LocationSearchInput: React.FC<Props> = ({
                   Clear
                 </button>
               </div>
-              {recentLocations.slice(0, 3).map((rec, idx) => (
+              {recentLocations.map((rec, idx) => (
                 <button
                   key={idx}
                   type="button"
