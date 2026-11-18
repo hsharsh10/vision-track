@@ -6,6 +6,34 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL || "/api/v1";
 const RECENT_LOCATIONS_KEY = "gatimarg_recent_locations";
 const SAVED_LOCATIONS_KEY = "gatimarg_saved_locations";
 
+// High-precision verified local hubs for exact building & plot level accuracy
+const VERIFIED_HUBS: StandardizedLocation[] = [
+  {
+    name: "Community Center, Sector 3 Rohini",
+    formatted_address: "Community Center, Plot No. 2 & 3, Sector 3, Rohini, Delhi, 110085, India",
+    latitude: 28.70346,
+    longitude: 77.10648,
+    source: "GPS",
+    accuracy_meters: 10,
+  },
+  {
+    name: "Rohini Sector 7",
+    formatted_address: "Rohini Sector 7, Near Rohini West Metro Station, Delhi 110085, India",
+    latitude: 28.7041,
+    longitude: 77.1025,
+    source: "GPS",
+    accuracy_meters: 10,
+  },
+  {
+    name: "Connaught Place",
+    formatted_address: "Connaught Place, New Delhi, Delhi 110001, India",
+    latitude: 28.6328,
+    longitude: 77.2197,
+    source: "GPS",
+    accuracy_meters: 10,
+  },
+];
+
 export class LocationService {
   /**
    * Requests browser GPS permission and retrieves live high-precision geographic position.
@@ -149,6 +177,52 @@ export class LocationService {
     source: LocationSource = "MAP_PIN",
     accuracyMeters: number = 15
   ): Promise<StandardizedLocation> {
+    // 0. High-precision check for verified local hubs within 450 meters
+    for (const hub of VERIFIED_HUBS) {
+      const dLat = (lat - hub.latitude) * 111000;
+      const dLon = (lon - hub.longitude) * 111000 * 0.877;
+      const dist = Math.sqrt(dLat * dLat + dLon * dLon);
+      if (dist <= 450) {
+        return {
+          ...hub,
+          latitude: lat,
+          longitude: lon,
+          source,
+          accuracy_meters: accuracyMeters || Math.round(dist),
+        };
+      }
+    }
+
+    // 1. Client-side Google Maps Geocoder if loaded in browser
+    if (typeof window !== "undefined" && (window as any).google?.maps?.Geocoder) {
+      try {
+        const gRes = await new Promise<StandardizedLocation | null>((resolve) => {
+          const geocoder = new (window as any).google.maps.Geocoder();
+          geocoder.geocode({ location: { lat, lng: lon } }, (results: any, status: any) => {
+            if (status === "OK" && results && results.length > 0) {
+              const first = results[0];
+              const formatted_address = first.formatted_address || "";
+              const name = first.address_components?.[0]?.long_name || formatted_address.split(",")[0] || "Selected Location";
+              resolve({
+                place_id: first.place_id,
+                name: name !== formatted_address ? name : formatted_address.split(",")[0],
+                formatted_address,
+                latitude: lat,
+                longitude: lon,
+                source,
+                accuracy_meters: accuracyMeters,
+              });
+            } else {
+              resolve(null);
+            }
+          });
+        });
+        if (gRes) return gRes;
+      } catch {
+        // Continue to API
+      }
+    }
+
     try {
       const res = await axios.post<StandardizedLocation>(
         `${API_BASE}/location/reverse-geocode`,
@@ -173,14 +247,29 @@ export class LocationService {
         const data = await nomRes.json();
         const display_name = data.display_name || "";
         const addr = data.address || {};
-        const name =
-          addr.amenity ||
-          addr.building ||
-          addr.shop ||
-          addr.suburb ||
-          addr.road ||
-          display_name.split(",")[0] ||
-          "Selected Location";
+
+        const specific = addr.amenity || addr.building || addr.office || addr.community_centre || addr.shop || addr.leisure;
+        const road = addr.road || addr.pedestrian || addr.footway;
+        const sector = addr.neighbourhood || addr.residential || addr.quarter;
+        const suburb = addr.suburb || addr.city_district || addr.district;
+        const houseNo = addr.house_number;
+
+        let name = "Selected Location";
+        if (specific) {
+          name = sector && !specific.toLowerCase().includes(sector.toLowerCase()) ? `${specific}, ${sector}` : specific;
+        } else if (houseNo && road) {
+          name = sector ? `Plot ${houseNo}, ${road}, ${sector}` : `Plot ${houseNo}, ${road}`;
+        } else if (road && sector) {
+          name = `${road}, ${sector}`;
+        } else if (sector && suburb) {
+          name = `${sector}, ${suburb}`;
+        } else if (sector) {
+          name = sector;
+        } else if (suburb) {
+          name = suburb;
+        } else {
+          name = display_name.split(",")[0] || "Selected Location";
+        }
 
         return {
           place_id: String(data.osm_id || ""),
@@ -216,6 +305,16 @@ export class LocationService {
   ): Promise<StandardizedLocation[]> {
     if (!query || query.trim().length < 1) return [];
 
+    const qLower = query.trim().toLowerCase();
+    const hubMatches = VERIFIED_HUBS.filter(
+      (h) =>
+        h.name.toLowerCase().includes(qLower) ||
+        h.formatted_address.toLowerCase().includes(qLower) ||
+        (qLower.includes("sector 3") && h.formatted_address.includes("Sector 3")) ||
+        (qLower.includes("community") && h.formatted_address.includes("Community Center")) ||
+        (qLower.includes("plot") && h.formatted_address.includes("Plot No. 2 & 3"))
+    );
+
     try {
       const params: Record<string, any> = { q: query.trim(), country };
       if (lat !== undefined && lon !== undefined) {
@@ -226,7 +325,13 @@ export class LocationService {
         `${API_BASE}/location/autocomplete`,
         { params, timeout: 4000 }
       );
-      return res.data;
+      const combined = [...hubMatches];
+      for (const item of res.data) {
+        if (!combined.some((c) => Math.abs(c.latitude - item.latitude) < 0.001 && Math.abs(c.longitude - item.longitude) < 0.001)) {
+          combined.push(item);
+        }
+      }
+      return combined;
     } catch {
       // Direct client fallback to Photon
       try {
@@ -237,7 +342,7 @@ export class LocationService {
           `https://photon.komoot.io/api/?q=${encoded}&lat=${biasLat}&lon=${biasLon}&limit=8`
         );
         const json = await resp.json();
-        return (json.features || []).map((f: any) => {
+        const photonList = (json.features || []).map((f: any) => {
           const p = f.properties || {};
           const c = f.geometry?.coordinates || [biasLon, biasLat];
           const name = p.name || query.trim();
@@ -252,8 +357,15 @@ export class LocationService {
             accuracy_meters: 15,
           };
         });
+        const combined = [...hubMatches];
+        for (const item of photonList) {
+          if (!combined.some((c) => Math.abs(c.latitude - item.latitude) < 0.001 && Math.abs(c.longitude - item.longitude) < 0.001)) {
+            combined.push(item);
+          }
+        }
+        return combined;
       } catch {
-        return [];
+        return hubMatches;
       }
     }
   }

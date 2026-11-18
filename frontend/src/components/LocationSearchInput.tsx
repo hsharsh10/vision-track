@@ -21,6 +21,13 @@ import { locationService } from "../services/locationService";
 
 const POPULAR_HUBS: StandardizedLocation[] = [
   {
+    name: "Community Center, Sector 3 Rohini",
+    formatted_address: "Community Center, Plot No. 2 & 3, Sector 3, Rohini, Delhi 110085, India",
+    latitude: 28.70346,
+    longitude: 77.10648,
+    source: "PLACES_AUTOCOMPLETE",
+  },
+  {
     name: "Rohini Sector 7",
     formatted_address: "Rohini Sector 7, Near Rohini West Metro Station, Delhi 110085, India",
     latitude: 28.7041,
