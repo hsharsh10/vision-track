@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import { Header } from "./components/Header";
 import { SearchWidget } from "./components/SearchWidget";
 import { RouteCard } from "./components/RouteCard";
@@ -14,7 +14,6 @@ import { AlertCircle } from "lucide-react";
 
 export const App: React.FC = () => {
   const {
-    executeSearch,
     searchResult,
     selectedRoute,
     setSelectedRoute,
@@ -31,11 +30,6 @@ export const App: React.FC = () => {
   } = useMobilityStore();
 
   const [detailModalRoute, setDetailModalRoute] = useState<RouteOption | null>(null);
-
-  useEffect(() => {
-    // Initial execution to populate initial routes matching the screenshot
-    executeSearch();
-  }, []);
 
   return (
     <div className="min-h-screen bg-[#f8fafc] text-slate-800 flex flex-col font-sans selection:bg-teal-500 selection:text-white">

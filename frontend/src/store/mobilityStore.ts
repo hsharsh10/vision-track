@@ -84,14 +84,14 @@ interface MobilityState {
 }
 
 const defaultQuery: SearchRequest = {
-  origin_name: defaultPickupLocation.formatted_address,
-  origin_lat: defaultPickupLocation.latitude,
-  origin_lon: defaultPickupLocation.longitude,
-  pickup: defaultPickupLocation,
-  dest_name: defaultDestLocation.formatted_address,
-  dest_lat: defaultDestLocation.latitude,
-  dest_lon: defaultDestLocation.longitude,
-  destination: defaultDestLocation,
+  origin_name: "",
+  origin_lat: undefined,
+  origin_lon: undefined,
+  pickup: undefined,
+  dest_name: "",
+  dest_lat: undefined,
+  dest_lon: undefined,
+  destination: undefined,
   travel_date: "12-11-2026",
   travel_time: "12:39",
   passenger_count: 1,
@@ -122,13 +122,13 @@ export const useMobilityStore = create<MobilityState>((set, get) => ({
   showMetricsModal: false,
   activePriorityTab: "best_overall",
   activeView: "cards",
-  hasSearched: true,
+  hasSearched: false,
   locationError: null,
   liveData: defaultLiveData,
 
-  // Single Source of Truth initialized with complete objects
-  pickupLocation: defaultPickupLocation,
-  destLocation: defaultDestLocation,
+  // Empty initial state matching clean entry view
+  pickupLocation: null,
+  destLocation: null,
   currentGPSLocation: null,
   isPickerOpen: false,
   pickerTarget: "origin",
