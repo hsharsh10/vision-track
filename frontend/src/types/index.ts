@@ -108,11 +108,11 @@ export interface RouteOption {
 
 export interface SearchRequest {
   origin_name: string;
-  origin_lat: number;
-  origin_lon: number;
+  origin_lat?: number;
+  origin_lon?: number;
   dest_name: string;
-  dest_lat: number;
-  dest_lon: number;
+  dest_lat?: number;
+  dest_lon?: number;
   pickup?: StandardizedLocation;
   destination?: StandardizedLocation;
   travel_date?: string;
