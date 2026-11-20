@@ -1,10 +1,7 @@
 import React from "react";
-import { Route, Wallet, Gauge, ShieldCheck, ArrowRight } from "lucide-react";
-import { useMobilityStore } from "../store/mobilityStore";
+import { Route, Wallet, Gauge, ShieldCheck } from "lucide-react";
 
 export const EmptyState: React.FC = () => {
-  const { loadSampleRoute } = useMobilityStore();
-
   return (
     <div className="space-y-4">
       {/* Top Dashed Box */}
@@ -18,18 +15,6 @@ export const EmptyState: React.FC = () => {
         <p className="text-slate-600 text-xs sm:text-sm mt-2 leading-relaxed">
           Results appear here with the estimated fare, travel time, walking distance, transfers and the source of every price.
         </p>
-
-        {/* Quick Sample Action */}
-        <div className="mt-5 pt-4 border-t border-slate-100 flex items-center justify-between flex-wrap gap-2">
-          <span className="text-xs text-slate-400">Want to see how it works?</span>
-          <button
-            onClick={() => loadSampleRoute("connaught_karol")}
-            className="inline-flex items-center gap-1.5 text-xs font-semibold text-teal-700 hover:text-teal-800 transition cursor-pointer"
-          >
-            <span>Load Connaught Place → Karol Bagh demo</span>
-            <ArrowRight className="w-3.5 h-3.5" />
-          </button>
-        </div>
       </div>
 
       {/* 3 Feature Value Props */}

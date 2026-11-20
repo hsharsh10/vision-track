@@ -14,7 +14,6 @@ export const Header: React.FC = () => {
   const {
     activeView,
     setActiveView,
-    loadSampleRoute,
     clearSearch,
     setShowPreferencesModal,
     setShowMetricsModal,
@@ -86,15 +85,8 @@ export const Header: React.FC = () => {
 
         {/* ── Controls ────────────────────────────────────────────────── */}
         <div className="flex items-center gap-2">
-          {/* Quick Demo */}
+          {/* Quick Clear */}
           <div className="hidden md:flex items-center gap-1.5 text-xs">
-            <button
-              onClick={() => loadSampleRoute("connaught_karol")}
-              className="px-2.5 py-1 rounded-lg text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition text-[11px] font-medium"
-              title="Load Connaught Place → Karol Bagh"
-            >
-              Demo Routes
-            </button>
             <button
               onClick={clearSearch}
               className="px-2.5 py-1 rounded-lg text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition text-[11px] font-medium"
