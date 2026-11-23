@@ -12,6 +12,7 @@ from backend.app.models.models import TransitStation, BusStop
 logger = logging.getLogger("gatimarg.geocoding")
 
 GOOGLE_MAPS_KEY = os.getenv("GOOGLE_MAPS_API_KEY", "AIzaSyCqh4jRK4ZKwsmHn7PyNLYlAf0UbGxlnjI")
+OLA_MAPS_KEY = os.getenv("OLA_MAPS_API_KEY", "C5OsY3W874iSu9UMcfar29kbNXPX4CyZotfvRdye")
 
 # In-memory LRU cache for geocoding
 _GEOCODE_CACHE: Dict[str, Dict[str, Any]] = {}
@@ -135,6 +136,32 @@ class GeocodingService:
                         return StandardizedLocation(**loc_obj)
             except Exception as e:
                 logger.debug(f"Google reverse geocode skipped: {e}")
+
+        # 1.5 Try Ola Maps Reverse Geocoding (high-precision Indian address data)
+        if OLA_MAPS_KEY:
+            try:
+                ola_url = f"https://api.olamaps.io/places/v1/reverse-geocode?latlng={lat},{lon}&api_key={OLA_MAPS_KEY}"
+                req = urllib.request.Request(ola_url, headers={"User-Agent": self.user_agent})
+                with urllib.request.urlopen(req, timeout=3.0) as resp:
+                    data = json.loads(resp.read().decode("utf-8"))
+                    results = data.get("results", [])
+                    if results:
+                        first = results[0]
+                        formatted = first.get("formatted_address", "")
+                        name = first.get("name") or formatted.split(",")[0]
+                        loc_obj = {
+                            "place_id": first.get("place_id") or f"ola_{round(lat, 5)}_{round(lon, 5)}",
+                            "name": name,
+                            "formatted_address": formatted,
+                            "latitude": round(lat, 6),
+                            "longitude": round(lon, 6),
+                            "source": source.value,
+                            "accuracy_meters": int(first.get("distance_meters") or 10)
+                        }
+                        _GEOCODE_CACHE[cache_key] = loc_obj
+                        return StandardizedLocation(**loc_obj)
+            except Exception as e:
+                logger.debug(f"Ola reverse geocode skipped: {e}")
 
         # 2. Try OpenStreetMap Nominatim API
         try:
@@ -312,6 +339,41 @@ class GeocodingService:
                         ))
             except Exception as e:
                 logger.debug(f"DB search error: {e}")
+
+        # 1.8 Query Ola Maps Places Autocomplete (native Indian places & landmarks)
+        if OLA_MAPS_KEY:
+            try:
+                encoded_q = urllib.parse.quote(clean_q)
+                ola_url = f"https://api.olamaps.io/places/v1/autocomplete?input={encoded_q}&api_key={OLA_MAPS_KEY}"
+                req = urllib.request.Request(ola_url, headers={"User-Agent": self.user_agent})
+                with urllib.request.urlopen(req, timeout=2.5) as resp:
+                    data = json.loads(resp.read().decode("utf-8"))
+                    predictions = data.get("predictions", [])
+                    for p in predictions:
+                        geom = p.get("geometry", {}).get("location", {})
+                        p_lat = geom.get("lat")
+                        p_lon = geom.get("lng")
+                        if p_lat is None or p_lon is None:
+                            continue
+                        coord_key = (round(float(p_lat), 4), round(float(p_lon), 4))
+                        if coord_key in seen_coords:
+                            continue
+                        seen_coords.add(coord_key)
+
+                        desc = p.get("description", "")
+                        struct = p.get("structured_formatting", {})
+                        main_t = struct.get("main_text") or desc.split(",")[0]
+                        results.append(StandardizedLocation(
+                            place_id=p.get("place_id") or f"ola_{round(float(p_lat), 5)}",
+                            name=main_t,
+                            formatted_address=desc,
+                            latitude=round(float(p_lat), 6),
+                            longitude=round(float(p_lon), 6),
+                            source=LocationSource.PLACES_AUTOCOMPLETE,
+                            accuracy_meters=10
+                        ))
+            except Exception as e:
+                logger.debug(f"Ola autocomplete error: {e}")
 
         # 2. Query Photon Geocoding Engine (Supports English + Hindi + Landmarks + Viewport Bias)
         try:

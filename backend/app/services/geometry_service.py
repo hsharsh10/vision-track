@@ -1,18 +1,26 @@
 import os
 import json
 import math
+import logging
 import urllib.request
 import urllib.error
 from typing import List, Tuple, Dict, Any, Optional
+
+logger = logging.getLogger("gatimarg.geometry")
 
 GOOGLE_MAPS_KEY = os.getenv(
     "GOOGLE_MAPS_API_KEY",
     "AIzaSyCqh4jRK4ZKwsmHn7PyNLYlAf0UbGxlnjI"
 )
+OLA_MAPS_KEY = os.getenv(
+    "OLA_MAPS_API_KEY",
+    "C5OsY3W874iSu9UMcfar29kbNXPX4CyZotfvRdye"
+)
 
 # In-memory geometry cache and provider health circuit-breakers
 _GEOMETRY_CACHE: Dict[str, Tuple[float, float, str, List[List[float]]]] = {}
 _GOOGLE_ROUTES_UNAVAILABLE = False
+_OLA_MAPS_UNAVAILABLE = False
 _OSRM_FAIL_COUNT = 0
 
 def decode_polyline(polyline_str: str) -> List[List[float]]:
@@ -84,6 +92,51 @@ def haversine_distance_m(lat1: float, lon1: float, lat2: float, lon2: float) -> 
          math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2.0) ** 2)
     c = 2.0 * math.atan2(math.sqrt(a), math.sqrt(1.0 - a))
     return R * c
+
+def _call_ola_maps_routing(
+    origin_lat: float, origin_lon: float,
+    dest_lat: float, dest_lon: float,
+    mode: str = "driving"
+) -> Optional[Tuple[float, float, str, List[List[float]]]]:
+    """
+    Calls Ola Maps Directions API for accurate road routing and real-time traffic duration in India.
+    Supplies ground-truth road distance and duration to GatiMarg's ML price optimization engine.
+    """
+    global _OLA_MAPS_UNAVAILABLE
+    if _OLA_MAPS_UNAVAILABLE or not OLA_MAPS_KEY:
+        return None
+
+    ola_mode = "walking" if mode == "WALK" else "driving"
+    url = f"https://api.olamaps.io/routing/v1/directions?origin={origin_lat},{origin_lon}&destination={dest_lat},{dest_lon}&mode={ola_mode}&api_key={OLA_MAPS_KEY}"
+    req = urllib.request.Request(
+        url,
+        data=b"",
+        headers={
+            "User-Agent": "GatiMargRoutingEngine/2.0",
+            "X-Request-Id": f"gatimarg-{int(origin_lat*1000)}-{int(dest_lat*1000)}"
+        },
+        method="POST"
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=3.0) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            if data.get("status") == "SUCCESS" and data.get("routes"):
+                r = data["routes"][0]
+                legs = r.get("legs", [])
+                if legs:
+                    leg = legs[0]
+                    dist_m = float(leg.get("distance", 0))
+                    dur_s = float(leg.get("duration", 0))
+                    encoded = r.get("overview_polyline", "")
+                    decoded = decode_polyline(encoded) if encoded else []
+                    if dist_m > 0:
+                        if not decoded:
+                            decoded = [[round(origin_lat, 6), round(origin_lon, 6)], [round(dest_lat, 6), round(dest_lon, 6)]]
+                            encoded = encode_polyline(decoded)
+                        return dist_m, dur_s, encoded, decoded
+    except Exception as e:
+        logger.warning(f"Ola Maps routing call failed: {e}")
+    return None
 
 def _call_google_routes_v2(
     origin_lat: float, origin_lon: float,
@@ -238,21 +291,27 @@ def get_leg_route_geometry(
             _GEOMETRY_CACHE[cache_key] = res
             return res
 
-    # 1. Try Google Routes API v2
+    # 1. Try Ola Maps (high-fidelity Indian road routing with live traffic duration for price optimization)
+    ola_res = _call_ola_maps_routing(origin_lat, origin_lon, dest_lat, dest_lon, mode)
+    if ola_res:
+        _GEOMETRY_CACHE[cache_key] = ola_res
+        return ola_res
+
+    # 2. Try Google Routes API v2
     google_mode = "WALK" if mode == "WALK" else ("BICYCLE" if mode == "BIKE" else "DRIVE")
     g_res = _call_google_routes_v2(origin_lat, origin_lon, dest_lat, dest_lon, google_mode)
     if g_res:
         _GEOMETRY_CACHE[cache_key] = g_res
         return g_res
 
-    # 2. Try OSRM
+    # 3. Try OSRM
     osrm_profile = "walking" if mode == "WALK" else "driving"
     o_res = _call_osrm_routing(origin_lat, origin_lon, dest_lat, dest_lon, osrm_profile)
     if o_res:
         _GEOMETRY_CACHE[cache_key] = o_res
         return o_res
 
-    # 3. Fallback: High-fidelity corridor synthesis
+    # 4. Fallback: High-fidelity corridor synthesis
     c_res = _generate_realistic_corridor(origin_lat, origin_lon, dest_lat, dest_lon, mode)
     _GEOMETRY_CACHE[cache_key] = c_res
     return c_res
