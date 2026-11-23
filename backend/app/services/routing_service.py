@@ -10,7 +10,9 @@ from backend.app.schemas.schemas import (
 )
 from backend.app.services.transit_service import transit_service, haversine_distance_km
 from backend.app.services.pricing_service import pricing_service
-from backend.app.services.geometry_service import get_leg_route_geometry, encode_polyline, haversine_distance_m
+from backend.app.services.geometry_service import (
+    get_leg_route_geometry, encode_polyline, haversine_distance_m, prefetch_ola_distance_matrix
+)
 
 logger = logging.getLogger("gatimarg.routing")
 logging.basicConfig(level=logging.INFO)
@@ -418,6 +420,20 @@ class RoutingService:
         if req.mode_preference in [TravelModeFilter.ALL, TravelModeFilter.PUBLIC_ONLY, TravelModeFilter.MIXED]:
             origin_stations = transit_service.find_nearest_stations(db, req.origin_lat, req.origin_lon, max_radius_km=7.5, limit=3)
             dest_stations = transit_service.find_nearest_stations(db, req.dest_lat, req.dest_lon, max_radius_km=7.5, limit=3)
+
+            # -------------------------------------------------------------
+            # Feature: Ola Maps Distance Matrix API
+            # Batch computes travel times & road distances across all candidate
+            # transfer hubs in one API call to identify the optimal combination.
+            # -------------------------------------------------------------
+            first_mile_dests = [(s.latitude, s.longitude) for s, _ in origin_stations]
+            last_mile_origins = [(s.latitude, s.longitude) for s, _ in dest_stations]
+            if first_mile_dests:
+                prefetch_ola_distance_matrix([(req.origin_lat, req.origin_lon)], first_mile_dests, "AUTO")
+                prefetch_ola_distance_matrix([(req.origin_lat, req.origin_lon)], first_mile_dests, "WALK")
+            if last_mile_origins:
+                prefetch_ola_distance_matrix(last_mile_origins, [(req.dest_lat, req.dest_lon)], "AUTO")
+                prefetch_ola_distance_matrix(last_mile_origins, [(req.dest_lat, req.dest_lon)], "WALK")
 
             for o_stat, o_dist in origin_stations:
                 for d_stat, d_dist in dest_stations:

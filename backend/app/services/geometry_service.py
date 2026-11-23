@@ -138,6 +138,69 @@ def _call_ola_maps_routing(
         logger.warning(f"Ola Maps routing call failed: {e}")
     return None
 
+def prefetch_ola_distance_matrix(
+    origins: List[Tuple[float, float]],
+    destinations: List[Tuple[float, float]],
+    mode: str = "driving"
+) -> Dict[str, Dict[str, Any]]:
+    """
+    Batch queries Ola Maps Distance Matrix API across multiple origins and destinations.
+    Computes exact road distances, live traffic travel times, and pre-populates _GEOMETRY_CACHE
+    so multimodal transfer hub evaluations execute in a single round-trip without redundant API calls.
+    """
+    global _OLA_MAPS_UNAVAILABLE
+    if _OLA_MAPS_UNAVAILABLE or not OLA_MAPS_KEY or not origins or not destinations:
+        return {}
+
+    orig_str = "|".join(f"{round(lat, 5)},{round(lon, 5)}" for lat, lon in origins)
+    dest_str = "|".join(f"{round(lat, 5)},{round(lon, 5)}" for lat, lon in destinations)
+    ola_mode = "walking" if mode == "WALK" else "driving"
+
+    url = f"https://api.olamaps.io/routing/v1/distanceMatrix?origins={orig_str}&destinations={dest_str}&mode={ola_mode}&api_key={OLA_MAPS_KEY}"
+    req = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": "GatiMargRoutingEngine/2.0",
+            "X-Request-Id": f"gatimarg-matrix-{len(origins)}x{len(destinations)}"
+        }
+    )
+
+    results = {}
+    try:
+        with urllib.request.urlopen(req, timeout=4.0) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            if data.get("status") == "SUCCESS":
+                rows = data.get("rows", [])
+                for i, row in enumerate(rows):
+                    if i >= len(origins):
+                        break
+                    o_lat, o_lon = origins[i]
+                    elements = row.get("elements", [])
+                    for j, el in enumerate(elements):
+                        if j >= len(destinations):
+                            break
+                        d_lat, d_lon = destinations[j]
+                        if el.get("status") == "OK":
+                            dist_m = float(el.get("distance", 0))
+                            dur_s = float(el.get("duration", 0))
+                            poly = el.get("polyline", "")
+                            decoded = decode_polyline(poly) if poly else []
+                            if dist_m > 0:
+                                if not decoded:
+                                    decoded = [[round(o_lat, 6), round(o_lon, 6)], [round(d_lat, 6), round(d_lon, 6)]]
+                                    poly = encode_polyline(decoded)
+                                cache_key = f"{mode}:{round(o_lat, 5)},{round(o_lon, 5)}->{round(d_lat, 5)},{round(d_lon, 5)}"
+                                _GEOMETRY_CACHE[cache_key] = (dist_m, dur_s, poly, decoded)
+                                pair_key = f"{round(o_lat, 5)},{round(o_lon, 5)}->{round(d_lat, 5)},{round(d_lon, 5)}"
+                                results[pair_key] = {
+                                    "distance_meters": dist_m,
+                                    "duration_seconds": dur_s,
+                                    "polyline": poly
+                                }
+    except Exception as e:
+        logger.warning(f"Ola Maps distance matrix prefetch failed: {e}")
+    return results
+
 def _call_google_routes_v2(
     origin_lat: float, origin_lon: float,
     dest_lat: float, dest_lon: float,
