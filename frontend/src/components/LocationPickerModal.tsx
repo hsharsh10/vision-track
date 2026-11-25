@@ -112,7 +112,7 @@ export const LocationPickerModal: React.FC<Props> = ({
 
       tileLayerRef.current = tileLayer;
 
-      // Map move listeners for center pin interaction (Google Maps / Uber style)
+      // Map move listeners for center pin interaction (Ola Maps / Uber style)
       map.on("movestart", () => {
         setIsDraggingMap(true);
         // Dismiss autocomplete dropdown when user starts panning the map
@@ -310,7 +310,7 @@ export const LocationPickerModal: React.FC<Props> = ({
             </div>
             <div>
               <h2 className="text-sm sm:text-base font-bold text-slate-900 m-0 flex items-center gap-2">
-                <span>Choose Location on Google Maps</span>
+                <span>Choose Location on Ola Maps</span>
               </h2>
               <p className="text-[11px] text-slate-500 m-0 hidden sm:block">
                 Search a place or drag the map to position the pin exactly
@@ -320,7 +320,7 @@ export const LocationPickerModal: React.FC<Props> = ({
 
           {/* Mode & Theme Switchers */}
           <div className="flex items-center gap-2">
-            {/* Google Maps Layer Switcher */}
+            {/* Map Layer Switcher */}
             <div className="flex items-center p-0.5 bg-slate-100 rounded-xl border border-slate-200 text-xs">
               <button
                 type="button"

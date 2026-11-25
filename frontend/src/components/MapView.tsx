@@ -179,7 +179,7 @@ export const MapView: React.FC<Props> = ({ selectedRoute }) => {
         zoom: 12,
         attributionControl: false,
         transformRequest: (url: string) => {
-          if (url.includes("api.olamaps.io") && !url.includes("api_key=")) {
+          if (url.includes("olamaps.io") && !url.includes("api_key=")) {
             const sep = url.includes("?") ? "&" : "?";
             return { url: `${url}${sep}api_key=${OLA_MAPS_KEY}` };
           }
@@ -199,7 +199,20 @@ export const MapView: React.FC<Props> = ({ selectedRoute }) => {
 
       map.on("load", () => {
         setMapLoaded(true);
+        map.resize();
       });
+
+      map.on("error", (e: any) => {
+        console.warn("[Ola Maps Notice]", e?.error?.message || e);
+      });
+
+      // Safety timeout in case load event was missed
+      setTimeout(() => {
+        if (!mapLoaded && mapContainerRef.current) {
+          setMapLoaded(true);
+          map.resize();
+        }
+      }, 3000);
 
       // Interactive Click to set location
       map.on("click", (e: maplibregl.MapMouseEvent) => {
@@ -567,6 +580,21 @@ export const MapView: React.FC<Props> = ({ selectedRoute }) => {
       });
     }
   }, [mapTheme, mapEngine, renderOlaRoute]);
+
+  // Adapt map canvas to parent container sizing
+  useEffect(() => {
+    const handleResize = () => {
+      olaMapRef.current?.resize();
+    };
+    window.addEventListener("resize", handleResize);
+    const timer = setTimeout(() => {
+      olaMapRef.current?.resize();
+    }, 200);
+    return () => {
+      window.removeEventListener("resize", handleResize);
+      clearTimeout(timer);
+    };
+  }, []);
 
   // Center on current position or route
   const handleRecenter = () => {

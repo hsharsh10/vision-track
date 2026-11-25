@@ -1,5 +1,6 @@
 // ─── Ola Maps Web Services & Routing Integration ─────────────────────────────
 import axios from "axios";
+import { StandardizedLocation, LocationSource } from "../types";
 
 export const OLA_MAPS_KEY =
   import.meta.env.VITE_OLA_MAPS_API_KEY || "C5OsY3W874iSu9UMcfar29kbNXPX4CyZotfvRdye";
@@ -52,6 +53,48 @@ export function decodePolyline(encoded: string): Array<[number, number]> {
     poly.push([Number((lat / 1e5).toFixed(6)), Number((lng / 1e5).toFixed(6))]);
   }
   return poly;
+}
+
+/**
+ * Loads the Ola Maps style JSON and injects the API key into all sub-resources
+ * (sources, sprite, glyphs). This ensures MapLibre never makes an unauthenticated request.
+ */
+export async function getOlaMapsStyleObject(theme: "roadmap" | "dark" = "roadmap"): Promise<any> {
+  const styleName = theme === "dark" ? "default-dark-standard" : "default-light-standard";
+  const url = `https://api.olamaps.io/tiles/vector/v1/styles/${styleName}/style.json?api_key=${OLA_MAPS_KEY}`;
+
+  try {
+    const res = await axios.get(url, { timeout: 7000 });
+    const style = res.data;
+
+    // Inject api_key into sources
+    if (style.sources) {
+      Object.keys(style.sources).forEach((srcKey) => {
+        const src = style.sources[srcKey];
+        if (src && src.url && src.url.includes("olamaps.io") && !src.url.includes("api_key=")) {
+          const sep = src.url.includes("?") ? "&" : "?";
+          src.url = `${src.url}${sep}api_key=${OLA_MAPS_KEY}`;
+        }
+      });
+    }
+
+    // Inject api_key into sprite
+    if (style.sprite && style.sprite.includes("olamaps.io") && !style.sprite.includes("api_key=")) {
+      const sep = style.sprite.includes("?") ? "&" : "?";
+      style.sprite = `${style.sprite}${sep}api_key=${OLA_MAPS_KEY}`;
+    }
+
+    // Inject api_key into glyphs
+    if (style.glyphs && style.glyphs.includes("olamaps.io") && !style.glyphs.includes("api_key=")) {
+      const sep = style.glyphs.includes("?") ? "&" : "?";
+      style.glyphs = `${style.glyphs}${sep}api_key=${OLA_MAPS_KEY}`;
+    }
+
+    return style;
+  } catch (err) {
+    console.warn("Could not pre-fetch Ola Maps style JSON, falling back to direct style URL:", err);
+    return theme === "dark" ? OLA_MAPS_DARK_STYLE : OLA_MAPS_LIGHT_STYLE;
+  }
 }
 
 /**
@@ -114,7 +157,7 @@ export async function fetchOlaLiveDirections(
 /**
  * Reverse-geocodes coordinates into an Indian street-level address using Ola Maps.
  */
-export async function reverseGeocodeOla(lat: number, lon: number): Promise<any | null> {
+export async function reverseGeocodeOla(lat: number, lon: number): Promise<StandardizedLocation | null> {
   try {
     const url = `https://api.olamaps.io/places/v1/reverse-geocode`;
     const res = await axios.get(url, {
@@ -127,16 +170,65 @@ export async function reverseGeocodeOla(lat: number, lon: number): Promise<any |
 
     if (res.data && res.data.results?.length > 0) {
       const first = res.data.results[0];
+      const fullAddr = first.formatted_address || "";
+      const name = first.name || fullAddr.split(",")[0] || "Selected Location";
       return {
-        place_id: first.place_id,
-        name: first.name || first.formatted_address?.split(",")[0] || "Selected Location",
-        formatted_address: first.formatted_address || "",
+        place_id: first.place_id || `ola-${lat}-${lon}`,
+        name: name !== fullAddr ? name : fullAddr.split(",")[0],
+        formatted_address: fullAddr,
         latitude: lat,
         longitude: lon,
+        source: "MAP_PIN" as LocationSource,
+        accuracy_meters: 10,
       };
     }
   } catch (err) {
     console.debug("Ola reverse geocode skipped:", err);
   }
   return null;
+}
+
+/**
+ * Searches places, stations, landmarks, and addresses using Ola Maps Autocomplete API.
+ */
+export async function searchPlacesOla(
+  query: string,
+  lat?: number,
+  lon?: number
+): Promise<StandardizedLocation[]> {
+  if (!query || query.trim().length < 1) return [];
+
+  try {
+    const url = `https://api.olamaps.io/places/v1/autocomplete`;
+    const params: Record<string, any> = {
+      input: query.trim(),
+      api_key: OLA_MAPS_KEY,
+    };
+    if (lat !== undefined && lon !== undefined) {
+      params.location = `${lat},${lon}`;
+    }
+
+    const res = await axios.get(url, { params, timeout: 4000 });
+
+    if (res.data && res.data.predictions?.length > 0) {
+      return res.data.predictions.map((p: any) => {
+        const fullDesc = p.description || "";
+        const mainText = p.structured_formatting?.main_text || fullDesc.split(",")[0] || query;
+        const coords = p.geometry?.location;
+
+        return {
+          place_id: p.place_id || p.reference || `ola-place-${Date.now()}`,
+          name: mainText,
+          formatted_address: fullDesc,
+          latitude: coords?.lat ?? 28.6139,
+          longitude: coords?.lng ?? 77.209,
+          source: "PLACES_AUTOCOMPLETE" as LocationSource,
+          accuracy_meters: 15,
+        };
+      });
+    }
+  } catch (err) {
+    console.debug("Ola places search skipped:", err);
+  }
+  return [];
 }
