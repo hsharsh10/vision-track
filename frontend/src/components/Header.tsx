@@ -61,21 +61,21 @@ export const Header: React.FC = () => {
             {backendOnline ? "Backend Live" : "Offline (ML)"}
           </div>
 
-          {/* Google Maps status */}
+          {/* Ola Maps status */}
           <div
             className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border font-semibold ${
               googleMapsReady
-                ? "bg-blue-50 text-blue-700 border-blue-200"
+                ? "bg-teal-50 text-teal-800 border-teal-200"
                 : "bg-slate-50 text-slate-400 border-slate-200"
             }`}
-            title={googleMapsReady ? "Google Maps live directions active" : "Waiting for Google Maps"}
+            title={googleMapsReady ? "Ola Maps live vector tiles & directions active" : "Waiting for Ola Maps"}
           >
-            <MapPin className="w-3 h-3" />
+            <MapPin className="w-3 h-3 text-teal-700" />
             {googleMapsReady
               ? liveTravelTimeMin
-                ? `${liveTravelTimeMin} min · ${liveTravelDistanceKm} km`
-                : "Maps Live"
-              : "Maps Loading"}
+                ? `Ola Maps · ${liveTravelTimeMin} min (${liveTravelDistanceKm} km)`
+                : "Ola Maps Live"
+              : "Ola Maps Loading"}
           </div>
 
           {lastFetchedAt && (

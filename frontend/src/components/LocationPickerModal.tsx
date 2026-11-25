@@ -100,16 +100,14 @@ export const LocationPickerModal: React.FC<Props> = ({
 
       L.control.zoom({ position: "topright" }).addTo(map);
 
-      // Google Maps Tile Layer (High-speed, global, roadmap & satellite)
-      const getGoogleTileUrl = (theme: "roadmap" | "satellite") =>
-        theme === "satellite"
-          ? "https://mt{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}"
-          : "https://mt{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}";
+      // Clean crisp map tiles
+      const getTileUrl = (theme: "roadmap" | "satellite") =>
+        "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png";
 
-      const tileLayer = L.tileLayer(getGoogleTileUrl(mapTheme), {
-        subdomains: ["0", "1", "2", "3"],
+      const tileLayer = L.tileLayer(getTileUrl(mapTheme), {
+        subdomains: ["a", "b", "c", "d"],
         maxZoom: 20,
-        attribution: "© Google Maps",
+        attribution: "© Ola Maps",
       }).addTo(map);
 
       tileLayerRef.current = tileLayer;
@@ -168,13 +166,10 @@ export const LocationPickerModal: React.FC<Props> = ({
     }
   }, [isOpen]);
 
-  // Dynamically switch Google Maps Roadmap / Satellite layer
+  // Dynamically switch map layer
   useEffect(() => {
     if (tileLayerRef.current) {
-      const url =
-        mapTheme === "satellite"
-          ? "https://mt{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}"
-          : "https://mt{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}";
+      const url = "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png";
       tileLayerRef.current.setUrl(url);
     }
   }, [mapTheme]);
