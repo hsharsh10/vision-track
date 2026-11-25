@@ -45,6 +45,7 @@ export const LocationPickerModal: React.FC<Props> = ({
   const [isGPSLoading, setIsGPSLoading] = useState(false);
   const [pickerError, setPickerError] = useState<string | null>(null);
   const [mapTheme, setMapTheme] = useState<"roadmap" | "satellite">("roadmap");
+  const [isMapLoaded, setIsMapLoaded] = useState(false);
 
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<maplibregl.Map | null>(null);
@@ -151,8 +152,15 @@ export const LocationPickerModal: React.FC<Props> = ({
         });
 
         map.on("load", () => {
+          setIsMapLoaded(true);
           map.resize();
         });
+
+        // Safety timeout so user is never blocked
+        setTimeout(() => {
+          setIsMapLoaded(true);
+          map.resize();
+        }, 2500);
 
         map.on("error", (e: any) => {
           console.warn("[Ola Maps Picker Notice]", e?.error?.message || e);
@@ -503,6 +511,16 @@ export const LocationPickerModal: React.FC<Props> = ({
         {/* ── 3. Map Canvas Container ─────────────────────────────────────── */}
         <div className="relative flex-1 w-full min-h-0 bg-slate-100 overflow-hidden">
           <div ref={mapContainerRef} className="w-full h-full" />
+
+          {/* Loading overlay */}
+          {!isMapLoaded && (
+            <div className="absolute inset-0 bg-white/75 backdrop-blur-xs flex items-center justify-center z-20">
+              <div className="flex flex-col items-center gap-2">
+                <Loader2 className="w-7 h-7 text-teal-700 animate-spin" />
+                <span className="text-xs font-semibold text-slate-600">Loading Ola Maps vector tiles…</span>
+              </div>
+            </div>
+          )}
 
           {/* Center Pin Target: Stays centered above vector map tiles */}
           <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-full pointer-events-none z-30 flex flex-col items-center">
