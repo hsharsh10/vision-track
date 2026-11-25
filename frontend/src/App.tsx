@@ -83,7 +83,6 @@ export const App: React.FC = () => {
                     isSelected={selectedRoute?.id === route.id}
                     onSelect={() => setSelectedRoute(route)}
                     onOpenDetails={() => setDetailModalRoute(route)}
-                    departureTime={searchQuery.travel_time || "12:39"}
                   />
                 ))}
               </div>

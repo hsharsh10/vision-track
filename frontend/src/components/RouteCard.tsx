@@ -6,7 +6,6 @@ import {
   Bike,
   ChevronDown,
   ChevronUp,
-  Clock,
   Shuffle,
   ShieldCheck,
   MapPin,
@@ -22,7 +21,6 @@ interface Props {
   isSelected: boolean;
   onSelect: () => void;
   onOpenDetails?: () => void;
-  departureTime?: string;
 }
 
 export const RouteCard: React.FC<Props> = ({
@@ -30,7 +28,6 @@ export const RouteCard: React.FC<Props> = ({
   isSelected,
   onSelect,
   onOpenDetails,
-  departureTime = "12:39",
 }) => {
   const [isBreakdownOpen, setIsBreakdownOpen] = useState(false);
 
@@ -74,43 +71,6 @@ export const RouteCard: React.FC<Props> = ({
   // Unified legs array strictly from route data
   const legs: RouteLeg[] =
     route.legs && route.legs.length > 0 ? route.legs : route.segments || [];
-
-  // Compute departure and arrival times
-  const computeDepartureArrival = () => {
-    if (route.departure_time && route.arrival_time) {
-      return {
-        departs: route.departure_time,
-        arrives: route.arrival_time,
-      };
-    }
-    try {
-      const parts = departureTime.split(":");
-      const h = parseInt(parts[0], 10) || 12;
-      const m = parseInt(parts[1], 10) || 39;
-      const dur = Math.round(route.total_journey_duration_min ?? route.total_duration_min ?? 0);
-      const totalMinutes = h * 60 + m + dur;
-
-      const arrHours = Math.floor(totalMinutes / 60) % 24;
-      const arrMins = totalMinutes % 60;
-
-      const format12h = (hours: number, mins: number) => {
-        const period = hours >= 12 ? "pm" : "am";
-        const h12 = hours % 12 === 0 ? 12 : hours % 12;
-        const padH = h12 < 10 ? `0${h12}` : `${h12}`;
-        const padM = mins < 10 ? `0${mins}` : `${mins}`;
-        return `${padH}:${padM} ${period}`;
-      };
-
-      return {
-        departs: format12h(h, m),
-        arrives: format12h(arrHours, arrMins),
-      };
-    } catch {
-      return { departs: "12:39 pm", arrives: "01:08 pm" };
-    }
-  };
-
-  const times = computeDepartureArrival();
 
   // Route statistics strictly calculated from legs / standardized fields
   const walkingMeters = Math.round(
@@ -167,7 +127,7 @@ export const RouteCard: React.FC<Props> = ({
           : "border-slate-200/90 hover:border-slate-300"
       }`}
     >
-      {/* Route Name, Title & Departs / Arrives */}
+      {/* Route Name & Title */}
       <div className="flex items-start justify-between gap-3">
         <div>
           <div className="flex items-center gap-2 flex-wrap">
@@ -185,9 +145,6 @@ export const RouteCard: React.FC<Props> = ({
               </span>
             )}
           </div>
-          <p className="text-xs sm:text-sm text-slate-500 mt-1 m-0">
-            Departs {times.departs} · Arrives {times.arrives}
-          </p>
         </div>
 
         {/* View Details modal launcher */}
@@ -483,7 +440,7 @@ export const RouteCard: React.FC<Props> = ({
 
       {/* Footnote */}
       <p className="text-[11px] text-slate-400 mt-2 m-0">
-        Source: {sourceDesc}. Depart: {times.departs} · Arrive: {times.arrives}.
+        Source: {sourceDesc}
       </p>
     </div>
   );
