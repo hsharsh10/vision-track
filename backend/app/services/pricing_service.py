@@ -88,7 +88,7 @@ class PricingService:
         # TIER 3: Machine Learning Fare Prediction (XGBoost Regressor)
         # -------------------------------------------------------------
         try:
-            pred_fare, range_min, range_max, confidence = ml_service.predict_fare(
+            pred_fare, range_min, range_max, confidence, congestion_ratio = ml_service.predict_fare(
                 provider_code=provider_code,
                 category_code=category_code,
                 distance_km=distance_km,
@@ -100,15 +100,22 @@ class PricingService:
                 min_fare=min_fare
             )
 
+            traffic_condition = (
+                "Heavy Congestion / Surge Active" if congestion_ratio >= 1.4
+                else ("Moderate Traffic" if congestion_ratio >= 1.15 else "Free Flow / Normal Traffic")
+            )
+
             return FareEstimate(
                 fare_inr=pred_fare,
                 range_min=range_min,
                 range_max=range_max,
                 confidence=confidence,
                 source=FareSource.ML_PREDICTED,
-                data_freshness_desc="Calibrated XGBoost Ensemble with MdAE error bounds",
+                data_freshness_desc=f"XGBoost v2.0 (CR: {congestion_ratio:.2f}x · {traffic_condition})",
                 details={
-                    "model": "XGBoost Regressor v1.0",
+                    "model": "XGBoost Regressor v2.0 (Ola Maps Traffic-Aware)",
+                    "congestion_ratio": congestion_ratio,
+                    "traffic_condition": traffic_condition,
                     "calibrated_spread": round(range_max - range_min, 1)
                 }
             )
@@ -118,10 +125,14 @@ class PricingService:
         # -------------------------------------------------------------
         # TIER 4: Baseline Formula Fallback
         # -------------------------------------------------------------
+        free_flow_min = max(1.0, (distance_km / 36.0) * 60.0)
+        congestion_ratio = round(min(3.5, max(0.8, duration_min / free_flow_min)), 3)
+        traffic_multiplier = 1.0 + max(0.0, (congestion_ratio - 1.0) * 0.35)
+
         chargeable_km = max(0.0, distance_km - (cat.base_distance_km if cat else 1.0))
         km_cost = chargeable_km * (cat.per_km_rate if cat else 14.0)
         time_cost = duration_min * (cat.per_minute_rate if cat else 1.5)
-        raw_total = base_fare + km_cost + time_cost
+        raw_total = (base_fare + km_cost + time_cost) * traffic_multiplier
         fare_final = max(min_fare, round(raw_total, 1))
 
         return FareEstimate(
@@ -130,8 +141,12 @@ class PricingService:
             range_max=round(fare_final * 1.15, 1),
             confidence="Medium",
             source=FareSource.ESTIMATED_FALLBACK,
-            data_freshness_desc="Calculated from provider regulatory base tariff",
-            details={"fallback": "Base + PerKm + PerMin"}
+            data_freshness_desc=f"Provider tariff adjusted for live congestion ({congestion_ratio:.2f}x)",
+            details={
+                "fallback": "Base + PerKm + PerMin",
+                "congestion_ratio": congestion_ratio,
+                "traffic_multiplier": round(traffic_multiplier, 2)
+            }
         )
 
 pricing_service = PricingService()

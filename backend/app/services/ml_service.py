@@ -25,6 +25,7 @@ class MLFareService:
         from backend.app.db.database import SessionLocal
         from backend.app.models.models import FareObservation, ProviderVehicleCategory
 
+        EXPECTED_FEATURES = 9
         db = SessionLocal()
         try:
             categories = db.query(ProviderVehicleCategory).all()
@@ -34,10 +35,15 @@ class MLFareService:
                 metrics_file = os.path.join(MODEL_DIR, f"{key}_metrics.joblib")
 
                 if os.path.exists(model_file) and os.path.exists(metrics_file):
-                    self.models[key] = joblib.load(model_file)
-                    self.metrics[key] = joblib.load(metrics_file)
-                else:
-                    self._train_category_model(db, cat)
+                    try:
+                        loaded_model = joblib.load(model_file)
+                        if getattr(loaded_model, "n_features_in_", None) == EXPECTED_FEATURES:
+                            self.models[key] = loaded_model
+                            self.metrics[key] = joblib.load(metrics_file)
+                            continue
+                    except Exception:
+                        pass
+                self._train_category_model(db, cat)
         finally:
             db.close()
 
@@ -55,9 +61,14 @@ class MLFareService:
 
         records = []
         for o in observations:
+            # Free-flow duration based on 36 km/h free-flow speed in Delhi NCR
+            free_flow_min = max(1.0, (o.distance_km / 36.0) * 60.0)
+            congestion_ratio = round(min(3.5, max(0.8, o.duration_min / free_flow_min)), 3)
+
             records.append({
                 "distance_km": o.distance_km,
                 "duration_min": o.duration_min,
+                "congestion_ratio": congestion_ratio,
                 "hour_of_day": o.hour_of_day,
                 "day_of_week": o.day_of_week,
                 "is_weekend": 1 if o.is_weekend else 0,
@@ -117,10 +128,10 @@ class MLFareService:
         travel_dt: Optional[datetime] = None,
         base_fare: float = 30.0,
         min_fare: float = 30.0
-    ) -> Tuple[float, float, float, str]:
+    ) -> Tuple[float, float, float, str, float]:
         """
-        Predicts fare and calculates calibrated min/max range.
-        Returns: (predicted_fare, range_min, range_max, confidence_level)
+        Predicts fare using calibrated XGBoost Regressor with Ola Maps Traffic Congestion Ratio (CR).
+        Returns: (predicted_fare, range_min, range_max, confidence_level, congestion_ratio)
         """
         key = self._get_model_key(provider_code, category_code)
         now = travel_dt or datetime.now()
@@ -129,18 +140,25 @@ class MLFareService:
         is_peak = (8 <= hour <= 11) or (17 <= hour <= 21)
         is_weekend = 1 if day >= 5 else 0
 
+        # Compute Ola Maps Traffic Congestion Ratio (CR):
+        # Free-flow duration benchmark: 36 km/h (1 km in 1.67 mins)
+        free_flow_min = max(1.0, (distance_km / 36.0) * 60.0)
+        congestion_ratio = round(min(3.5, max(0.8, duration_min / free_flow_min)), 3)
+
         model = self.models.get(key)
         metrics = self.metrics.get(key)
 
         if model is None:
-            # Fallback to formula with uncertainty bounds
-            baseline = max(min_fare, base_fare + (distance_km * 12.0) + (duration_min * 1.2))
-            return round(baseline, 1), round(max(min_fare, baseline * 0.9), 1), round(baseline * 1.15, 1), "Low"
+            # Fallback to formula with uncertainty bounds adjusted for congestion
+            traffic_multiplier = 1.0 + max(0.0, (congestion_ratio - 1.0) * 0.4)
+            baseline = max(min_fare, (base_fare + (distance_km * 12.0) + (duration_min * 1.2)) * traffic_multiplier)
+            return round(baseline, 1), round(max(min_fare, baseline * 0.9), 1), round(baseline * 1.15, 1), "Low", congestion_ratio
 
-        # Feature vector
+        # Feature vector with live Ola Maps Congestion Ratio
         feature_data = pd.DataFrame([{
             "distance_km": distance_km,
             "duration_min": duration_min,
+            "congestion_ratio": congestion_ratio,
             "hour_of_day": hour,
             "day_of_week": day,
             "is_weekend": is_weekend,
@@ -156,8 +174,10 @@ class MLFareService:
         mdae = metrics.get("mdae", 6.0)
         e90 = metrics.get("e90", 14.0)
 
+        # Traffic-conditioned dynamic bounds: when congestion is heavy (CR >= 1.4), upper bound reflects surge volatility
+        volatility_weight = 1.0 + max(0.0, (congestion_ratio - 1.2) * 0.3)
         range_min = max(min_fare, round(pred_val - (1.25 * mdae), 1))
-        range_max = round(pred_val + (1.25 * e90), 1)
+        range_max = round(pred_val + (1.25 * e90 * volatility_weight), 1)
 
         # Confidence assessment
         mae = metrics.get("mae", 8.0)
@@ -168,6 +188,6 @@ class MLFareService:
         else:
             confidence = "Low"
 
-        return pred_val, range_min, range_max, confidence
+        return pred_val, range_min, range_max, confidence, congestion_ratio
 
 ml_service = MLFareService()
