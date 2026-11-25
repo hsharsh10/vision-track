@@ -940,75 +940,6 @@ class RoutingService:
                         ))
 
             # -------------------------------------------------------------
-            # SCENARIO 4: Cab + Walk (Acceptance Test 2)
-            # -------------------------------------------------------------
-            cab_drop_lat = req.dest_lat - (0.0012 if req.dest_lat > req.origin_lat else -0.0012)
-            cab_drop_lon = req.dest_lon - (0.0012 if req.dest_lon > req.origin_lon else -0.0012)
-            cw_cab_m, cw_cab_s, cw_cab_poly, cw_cab_coords = get_leg_route_geometry(
-                req.origin_lat, req.origin_lon, cab_drop_lat, cab_drop_lon, "CAB"
-            )
-            cw_walk_m, cw_walk_s, cw_walk_poly, cw_walk_coords = get_leg_route_geometry(
-                cab_drop_lat, cab_drop_lon, req.dest_lat, req.dest_lon, "WALK"
-            )
-            cw_cab_dist_km = round(cw_cab_m / 1000.0, 2)
-            cw_cab_fare_est = pricing_service.get_ride_fare_estimate(
-                db, "uber", "uber_go", cw_cab_dist_km, round(cw_cab_s / 60.0, 1),
-                req.origin_lat, req.origin_lon, cab_drop_lat, cab_drop_lon
-            )
-
-            t0 = base_departure_dt
-            leg1 = self._build_leg(
-                route_id=str(uuid.uuid4())[:8],
-                seq=1,
-                mode=ModeType.CAB,
-                provider="Uber",
-                start_name=req.origin_name,
-                start_lat=req.origin_lat,
-                start_lon=req.origin_lon,
-                end_name="Drop Point / Access Gate",
-                end_lat=cab_drop_lat,
-                end_lon=cab_drop_lon,
-                fare=cw_cab_fare_est.fare_inr,
-                instructions=f"Take Uber Go to drop point near {req.dest_name}",
-                line_color="#0D9488",  # Teal solid for Cab
-                start_dt=t0,
-                vehicle_details={"vehicle_type": "Cab", "category": "Uber Go"},
-                custom_geom=(cw_cab_m, cw_cab_s, cw_cab_poly, cw_cab_coords)
-            )
-
-            t1 = t0 + timedelta(seconds=cw_cab_s)
-            leg2 = self._build_leg(
-                route_id=str(uuid.uuid4())[:8],
-                seq=2,
-                mode=ModeType.WALK,
-                provider="Walking",
-                start_name="Drop Point / Access Gate",
-                start_lat=cab_drop_lat,
-                start_lon=cab_drop_lon,
-                end_name=req.dest_name,
-                end_lat=req.dest_lat,
-                end_lon=req.dest_lon,
-                fare=0.0,
-                instructions=f"Walk {int(cw_walk_m)}m to {req.dest_name}",
-                line_color="#EA580C",  # Orange dashed for Walking
-                start_dt=t1,
-                vehicle_details={"pedestrian_type": "Final Destination Access"},
-                custom_geom=(cw_walk_m, cw_walk_s, cw_walk_poly, cw_walk_coords)
-            )
-
-            generated_routes.append(self._assemble_route(
-                route_id=str(uuid.uuid4())[:8],
-                title="Cab (Drop at Outer Gate) + Walk",
-                route_name="CAB + WALK",
-                category_tag="COMFORTABLE",
-                summary_badges=["Outer Gate Drop", "Avoid Gate Congestion"],
-                legs=[leg1, leg2],
-                fare_estimate=cw_cab_fare_est,
-                direct_cab_fare=benchmark_fare,
-                co2_saved_kg=0.02
-            ))
-
-            # -------------------------------------------------------------
             # SCENARIO 5: Walk + Bus + Metro + Walk (Acceptance Test 4)
             # -------------------------------------------------------------
             bus_stops_orig = transit_service.find_nearest_bus_stops(db, req.origin_lat, req.origin_lon, max_radius_km=3.0)
@@ -1189,9 +1120,6 @@ class RoutingService:
             norm_trans = min(1.0, r.transfer_count / 3.0)
 
             score = (w_cost * norm_cost) + (w_time * norm_time) + (w_walk * norm_walk) + (w_trans * norm_trans)
-            # Add penalty for artificial cab drop-off walk so direct doorstep rides are prioritized
-            if r.route_name == "CAB + WALK":
-                score += 0.20
             r.score = round(score * 100.0, 2)
 
         return sorted(routes, key=lambda x: x.score)

@@ -56,13 +56,12 @@ def test_scenario_1_walk_metro_walk():
     assert wmw["motorized_legs_count"] == 1
     assert wmw["transfer_count"] == 0
 
-def test_scenario_2_cab_walk():
+def test_scenario_2_direct_cab():
     """
-    Acceptance Test 2: Cab + Walk
-    - Cab road geometry is displayed.
-    - Walking geometry is displayed separately.
-    - Both distances are calculated.
-    - Fare is assigned to the cab segment.
+    Acceptance Test 2: Direct Cab (Door-to-Door)
+    - Direct Cab is generated with door-to-door delivery.
+    - Walking distance is 0m (no artificial drop-off walk).
+    - Fare and road geometry are calculated.
     """
     payload = {
         "origin_name": "Connaught Place",
@@ -78,21 +77,21 @@ def test_scenario_2_cab_walk():
     assert response.status_code == 200
     data = response.json()
 
+    # Ensure synthetic CAB + WALK route is completely removed
     cw_routes = [r for r in data["routes"] if "CAB + WALK" in r["route_name"] or "Cab + Walk" in r["title"]]
-    assert len(cw_routes) > 0, "Cab + Walk route must be generated"
-    cw = cw_routes[0]
+    assert len(cw_routes) == 0, "Synthetic Cab + Walk route must not exist"
 
-    modes = [l["mode"] for l in cw["legs"]]
-    assert modes == ["CAB", "WALK"]
+    cab_routes = [r for r in data["routes"] if r["route_name"] == "CAB" or "Direct Cab" in r["title"]]
+    assert len(cab_routes) > 0, "Direct Cab route must be generated"
+    cab = cab_routes[0]
 
-    # Verify both distances are calculated
-    assert cw["driving_distance_meters"] > 0
-    assert cw["walking_distance_meters"] > 0
-    assert abs(cw["total_distance_meters"] - (cw["driving_distance_meters"] + cw["walking_distance_meters"])) < 0.1
+    modes = [l["mode"] for l in cab["legs"]]
+    assert modes == ["CAB"]
 
-    # Verify fare is assigned to cab segment, walk is free
-    assert cw["legs"][0]["fare"] > 100
-    assert cw["legs"][1]["fare"] == 0.0
+    # Verify door-to-door delivery: 0 walking distance
+    assert cab["walking_distance_meters"] == 0
+    assert cab["driving_distance_meters"] > 0
+    assert cab["legs"][0]["fare"] > 100
 
 def test_scenario_3_auto_metro_walk():
     """
