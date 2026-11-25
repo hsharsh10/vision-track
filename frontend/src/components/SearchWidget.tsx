@@ -1,9 +1,6 @@
 import React, { useState } from "react";
 import {
   ArrowUpDown,
-  Calendar,
-  Clock,
-  Users,
   Route,
   Train,
   Car,
@@ -273,72 +270,6 @@ export const SearchWidget: React.FC = () => {
         {locationError && (
           <p className="text-rose-500 text-xs leading-snug m-0">{locationError}</p>
         )}
-
-        {/* Date & Departure Row */}
-        <div className="grid grid-cols-2 gap-3 pt-1">
-          {/* Date */}
-          <div className="space-y-1.5">
-            <label className="text-xs font-semibold text-slate-700 flex items-center gap-1">
-              <Clock className="w-3.5 h-3.5 text-slate-500" />
-              <span>Date</span>
-            </label>
-            <div className="relative flex items-center">
-              <input
-                type="text"
-                value={searchQuery.travel_date || "12-11-2026"}
-                onChange={(e) => setSearchQuery({ travel_date: e.target.value })}
-                className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs sm:text-sm text-slate-800 focus:outline-none focus:border-teal-600 shadow-2xs"
-              />
-              <div className="absolute right-3 text-slate-400 pointer-events-none">
-                <Calendar className="w-3.5 h-3.5" />
-              </div>
-            </div>
-          </div>
-
-          {/* Departure */}
-          <div className="space-y-1.5">
-            <label className="text-xs font-semibold text-slate-700 block">
-              Departure
-            </label>
-            <div className="relative flex items-center">
-              <input
-                type="text"
-                value={searchQuery.travel_time || "12:39"}
-                onChange={(e) => setSearchQuery({ travel_time: e.target.value })}
-                className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs sm:text-sm text-slate-800 focus:outline-none focus:border-teal-600 shadow-2xs"
-              />
-              <div className="absolute right-3 text-slate-400 pointer-events-none">
-                <Clock className="w-3.5 h-3.5" />
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Passengers */}
-        <div className="space-y-1.5 pt-1">
-          <label className="text-xs font-semibold text-slate-700 flex items-center gap-1">
-            <Users className="w-3.5 h-3.5 text-slate-500" />
-            <span>Passengers</span>
-          </label>
-          <div className="relative flex items-center">
-            <select
-              value={searchQuery.passenger_count}
-              onChange={(e) =>
-                setSearchQuery({ passenger_count: Number(e.target.value) })
-              }
-              className="w-full bg-white border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm text-slate-800 appearance-none focus:outline-none focus:border-teal-600 cursor-pointer shadow-2xs"
-            >
-              <option value={1}>1 passenger</option>
-              <option value={2}>2 passengers</option>
-              <option value={3}>3 passengers</option>
-              <option value={4}>4 passengers</option>
-              <option value={5}>5+ passengers</option>
-            </select>
-            <div className="absolute right-3.5 text-slate-400 pointer-events-none">
-              <ChevronDown className="w-4 h-4" />
-            </div>
-          </div>
-        </div>
 
         {/* How do you want to travel? 2x2 Grid */}
         <div className="pt-2">
