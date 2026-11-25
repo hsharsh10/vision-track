@@ -270,10 +270,10 @@ export const MapView: React.FC<Props> = ({ selectedRoute }) => {
       zoomControl: true,
     });
 
-    // Carto / OSM clean fallback tiles
-    L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", {
+    // OpenStreetMap clean fallback tiles (No API key watermark required)
+    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
       maxZoom: 19,
-      attribution: "© OpenStreetMap © CARTO",
+      attribution: "© OpenStreetMap contributors",
     }).addTo(lmap);
 
     const layerGroup = L.layerGroup().addTo(lmap);
