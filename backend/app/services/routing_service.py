@@ -865,10 +865,10 @@ class RoutingService:
 
             generated_routes.append(self._assemble_route(
                 route_id=str(uuid.uuid4())[:8],
-                title="Cab + Walk to Destination",
+                title="Cab (Drop at Outer Gate) + Walk",
                 route_name="CAB + WALK",
                 category_tag="COMFORTABLE",
-                summary_badges=["Avoid Congestion", "Arrive Fast"],
+                summary_badges=["Outer Gate Drop", "Avoid Gate Congestion"],
                 legs=[leg1, leg2],
                 fare_estimate=cw_cab_fare_est,
                 direct_cab_fare=benchmark_fare,
@@ -1056,6 +1056,9 @@ class RoutingService:
             norm_trans = min(1.0, r.transfer_count / 3.0)
 
             score = (w_cost * norm_cost) + (w_time * norm_time) + (w_walk * norm_walk) + (w_trans * norm_trans)
+            # Add penalty for artificial cab drop-off walk so direct doorstep rides are prioritized
+            if r.route_name == "CAB + WALK":
+                score += 0.20
             r.score = round(score * 100.0, 2)
 
         return sorted(routes, key=lambda x: x.score)
