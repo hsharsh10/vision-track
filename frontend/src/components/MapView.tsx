@@ -632,35 +632,8 @@ export const MapView: React.FC<Props> = ({ selectedRoute }) => {
 
   return (
     <div className="relative w-full h-full flex flex-col bg-slate-100 overflow-hidden select-none">
-      {/* ── Floating Controls Bar ────────────────────────────────────────── */}
-      <div className="absolute top-3 left-3 z-20 flex items-center gap-1.5 bg-white/90 backdrop-blur-md p-1 rounded-xl shadow-md border border-slate-200 text-xs">
-        {/* Ola Maps Badge */}
-        <div className="flex items-center gap-1 px-2 py-1 bg-teal-50 text-teal-800 rounded-lg font-semibold text-[11px] border border-teal-200">
-          <Compass className="w-3.5 h-3.5 text-teal-600" />
-          <span>Ola Maps Vector</span>
-        </div>
-
-        {/* Theme Toggle (Light / Dark) */}
-        <button
-          onClick={() => setMapTheme(mapTheme === "roadmap" ? "dark" : "roadmap")}
-          title={`Switch to ${mapTheme === "roadmap" ? "Dark" : "Light"} Map`}
-          className="p-1.5 rounded-lg text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition"
-        >
-          {mapTheme === "dark" ? <Sun className="w-4 h-4 text-amber-500" /> : <Moon className="w-4 h-4 text-slate-600" />}
-        </button>
-
-        {/* Recenter Button */}
-        <button
-          onClick={handleRecenter}
-          title="Center on Pickup / GPS Location"
-          className="p-1.5 rounded-lg text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition"
-        >
-          <Crosshair className="w-4 h-4 text-slate-600" />
-        </button>
-      </div>
-
       {/* ── Mode Legends Strip ────────────────────────────────────────────── */}
-      <div className="px-4 py-2 bg-white/95 backdrop-blur-md border-b border-slate-200 flex flex-wrap items-center gap-4 text-xs text-slate-600 z-10">
+      <div className="px-4 py-2 bg-white/95 backdrop-blur-md border-b border-slate-200 flex items-center gap-3 sm:gap-4 text-xs text-slate-600 z-10 shrink-0 overflow-x-auto whitespace-nowrap scrollbar-none">
         <div className="flex items-center gap-1.5">
           <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block ring-1 ring-white"></span>
           <span>Pickup</span>
@@ -697,6 +670,32 @@ export const MapView: React.FC<Props> = ({ selectedRoute }) => {
 
       {/* ── Map Canvas Container ─────────────────────────────────────────── */}
       <div className="relative flex-1 w-full min-h-0">
+        {/* ── Floating Controls Bar (floats neatly inside map canvas below legend) ── */}
+        <div className="absolute top-3 left-3 z-20 flex items-center gap-1.5 bg-white/90 backdrop-blur-md p-1 rounded-xl shadow-md border border-slate-200 text-xs">
+          {/* Ola Maps Badge */}
+          <div className="flex items-center gap-1 px-2 py-1 bg-teal-50 text-teal-800 rounded-lg font-semibold text-[11px] border border-teal-200">
+            <Compass className="w-3.5 h-3.5 text-teal-600" />
+            <span>Ola Maps Vector</span>
+          </div>
+
+          {/* Theme Toggle (Light / Dark) */}
+          <button
+            onClick={() => setMapTheme(mapTheme === "roadmap" ? "dark" : "roadmap")}
+            title={`Switch to ${mapTheme === "roadmap" ? "Dark" : "Light"} Map`}
+            className="p-1.5 rounded-lg text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition"
+          >
+            {mapTheme === "dark" ? <Sun className="w-4 h-4 text-amber-500" /> : <Moon className="w-4 h-4 text-slate-600" />}
+          </button>
+
+          {/* Recenter Button */}
+          <button
+            onClick={handleRecenter}
+            title="Center on Pickup / GPS Location"
+            className="p-1.5 rounded-lg text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition"
+          >
+            <Crosshair className="w-4 h-4 text-slate-600" />
+          </button>
+        </div>
         {/* Ola Maps WebGL vector div */}
         <div
           ref={mapContainerRef}
