@@ -19,6 +19,7 @@ import {
   OLA_MAPS_KEY,
   OLA_MAPS_LIGHT_STYLE,
   OLA_MAPS_DARK_STYLE,
+  getOlaMapsStyleObject,
   decodePolyline,
 } from "../services/olaMaps";
 
@@ -166,17 +167,19 @@ export const MapView: React.FC<Props> = ({ selectedRoute }) => {
   }, []);
 
   // ─── Initialize Ola Maps ──────────────────────────────────────────────────
-  const initOlaMap = useCallback(() => {
+  const initOlaMap = useCallback(async () => {
     if (!mapContainerRef.current || olaMapRef.current) return;
 
     try {
-      const styleUrl = mapTheme === "dark" ? OLA_MAPS_DARK_STYLE : OLA_MAPS_LIGHT_STYLE;
+      const styleObj = await getOlaMapsStyleObject(mapTheme);
+      if (!mapContainerRef.current || olaMapRef.current) return;
 
       const map = new maplibregl.Map({
         container: mapContainerRef.current,
-        style: styleUrl,
+        style: styleObj,
         center: [77.209, 28.6139], // Delhi Center [lon, lat]
         zoom: 12,
+        maxZoom: 14,
         attributionControl: false,
         transformRequest: (url: string) => {
           if (url.includes("olamaps.io") && !url.includes("api_key=")) {
@@ -541,7 +544,7 @@ export const MapView: React.FC<Props> = ({ selectedRoute }) => {
     if (!bounds.isEmpty()) {
       map.fitBounds(bounds, {
         padding: { top: 60, bottom: 60, left: 60, right: 60 },
-        maxZoom: 15.5,
+        maxZoom: 14,
         duration: 800,
       });
     }
@@ -572,13 +575,20 @@ export const MapView: React.FC<Props> = ({ selectedRoute }) => {
 
   // Theme change
   useEffect(() => {
+    let isCancelled = false;
     if (olaMapRef.current && mapEngine === "olamaps") {
-      const styleUrl = mapTheme === "dark" ? OLA_MAPS_DARK_STYLE : OLA_MAPS_LIGHT_STYLE;
-      olaMapRef.current.setStyle(styleUrl);
-      olaMapRef.current.once("styledata", () => {
-        renderOlaRoute();
+      getOlaMapsStyleObject(mapTheme).then((styleObj) => {
+        if (!isCancelled && olaMapRef.current) {
+          olaMapRef.current.setStyle(styleObj);
+          olaMapRef.current.once("styledata", () => {
+            renderOlaRoute();
+          });
+        }
       });
     }
+    return () => {
+      isCancelled = true;
+    };
   }, [mapTheme, mapEngine, renderOlaRoute]);
 
   // Adapt map canvas to parent container sizing

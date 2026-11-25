@@ -8,6 +8,9 @@ export const OLA_MAPS_KEY =
 export const OLA_MAPS_LIGHT_STYLE = `https://api.olamaps.io/tiles/vector/v1/styles/default-light-standard/style.json?api_key=${OLA_MAPS_KEY}`;
 export const OLA_MAPS_DARK_STYLE = `https://api.olamaps.io/tiles/vector/v1/styles/default-dark-standard/style.json?api_key=${OLA_MAPS_KEY}`;
 
+let cachedLightStyle: any = null;
+let cachedDarkStyle: any = null;
+
 export interface OlaDirectionsResult {
   durationText: string;
   distanceText: string;
@@ -56,44 +59,89 @@ export function decodePolyline(encoded: string): Array<[number, number]> {
 }
 
 /**
- * Loads the Ola Maps style JSON and injects the API key into all sub-resources
- * (sources, sprite, glyphs). This ensures MapLibre never makes an unauthenticated request.
+ * Loads the Ola Maps style JSON and bakes the API key directly into the tile URL templates.
+ * This guarantees MapLibre's background Web Worker never makes an unauthenticated tile request.
  */
 export async function getOlaMapsStyleObject(theme: "roadmap" | "dark" = "roadmap"): Promise<any> {
+  if (theme === "dark" && cachedDarkStyle) {
+    return JSON.parse(JSON.stringify(cachedDarkStyle));
+  }
+  if (theme !== "dark" && cachedLightStyle) {
+    return JSON.parse(JSON.stringify(cachedLightStyle));
+  }
+
   const styleName = theme === "dark" ? "default-dark-standard" : "default-light-standard";
   const url = `https://api.olamaps.io/tiles/vector/v1/styles/${styleName}/style.json?api_key=${OLA_MAPS_KEY}`;
 
   try {
-    const res = await axios.get(url, { timeout: 7000 });
-    const style = res.data;
+    const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
+    if (!res.ok) throw new Error(`Style fetch status: ${res.status}`);
+    const style = await res.json();
 
-    // Inject api_key into sources
-    if (style.sources) {
-      Object.keys(style.sources).forEach((srcKey) => {
-        const src = style.sources[srcKey];
-        if (src && src.url && src.url.includes("olamaps.io") && !src.url.includes("api_key=")) {
-          const sep = src.url.includes("?") ? "&" : "?";
-          src.url = `${src.url}${sep}api_key=${OLA_MAPS_KEY}`;
-        }
-      });
-    }
+    // Inject tiles directly into sources with the API key baked into the URL template
+    style.sources = {
+      openmaptiles: {
+        type: "vector",
+        tiles: [
+          `https://api.olamaps.io/tiles/vector/v1/data/planet/{z}/{x}/{y}.pbf?api_key=${OLA_MAPS_KEY}`,
+        ],
+        minzoom: 0,
+        maxzoom: 14,
+      },
+      vectordata: {
+        type: "vector",
+        tiles: [
+          `https://api.olamaps.io/tiles/vector/v1/data/vectordata/{z}/{x}/{y}.pbf?api_key=${OLA_MAPS_KEY}`,
+        ],
+        minzoom: 0,
+        maxzoom: 12,
+      },
+      street: {
+        type: "vector",
+        tiles: [
+          `https://api.olamaps.io/tiles/vector/v1/data/street/{z}/{x}/{y}.pbf?api_key=${OLA_MAPS_KEY}`,
+        ],
+        minzoom: 0,
+        maxzoom: 12,
+      },
+    };
 
-    // Inject api_key into sprite
-    if (style.sprite && style.sprite.includes("olamaps.io") && !style.sprite.includes("api_key=")) {
-      const sep = style.sprite.includes("?") ? "&" : "?";
-      style.sprite = `${style.sprite}${sep}api_key=${OLA_MAPS_KEY}`;
-    }
+    // Inject api_key into sprite and glyphs
+    style.sprite = `https://api.olamaps.io/tiles/vector/v1/styles/${styleName}/sprite?api_key=${OLA_MAPS_KEY}`;
+    style.glyphs = `https://api.olamaps.io/tiles/vector/v1/fonts/{fontstack}/{range}.pbf?api_key=${OLA_MAPS_KEY}`;
 
-    // Inject api_key into glyphs
-    if (style.glyphs && style.glyphs.includes("olamaps.io") && !style.glyphs.includes("api_key=")) {
-      const sep = style.glyphs.includes("?") ? "&" : "?";
-      style.glyphs = `${style.glyphs}${sep}api_key=${OLA_MAPS_KEY}`;
+    if (theme === "dark") {
+      cachedDarkStyle = style;
+    } else {
+      cachedLightStyle = style;
     }
 
     return style;
   } catch (err) {
-    console.warn("Could not pre-fetch Ola Maps style JSON, falling back to direct style URL:", err);
-    return theme === "dark" ? OLA_MAPS_DARK_STYLE : OLA_MAPS_LIGHT_STYLE;
+    console.warn("Could not fetch remote Ola Maps style, returning fallback vector style:", err);
+    return {
+      version: 8,
+      name: "Ola Maps",
+      sources: {
+        openmaptiles: {
+          type: "vector",
+          tiles: [
+            `https://api.olamaps.io/tiles/vector/v1/data/planet/{z}/{x}/{y}.pbf?api_key=${OLA_MAPS_KEY}`,
+          ],
+          minzoom: 0,
+          maxzoom: 14,
+        },
+      },
+      sprite: `https://api.olamaps.io/tiles/vector/v1/styles/default-light-standard/sprite?api_key=${OLA_MAPS_KEY}`,
+      glyphs: `https://api.olamaps.io/tiles/vector/v1/fonts/{fontstack}/{range}.pbf?api_key=${OLA_MAPS_KEY}`,
+      layers: [
+        {
+          id: "background",
+          type: "background",
+          paint: { "background-color": theme === "dark" ? "#1e293b" : "#f1f5f9" },
+        },
+      ],
+    };
   }
 }
 
@@ -159,17 +207,13 @@ export async function fetchOlaLiveDirections(
  */
 export async function reverseGeocodeOla(lat: number, lon: number): Promise<StandardizedLocation | null> {
   try {
-    const url = `https://api.olamaps.io/places/v1/reverse-geocode`;
-    const res = await axios.get(url, {
-      params: {
-        latlng: `${lat},${lon}`,
-        api_key: OLA_MAPS_KEY,
-      },
-      timeout: 4000,
-    });
+    const url = `https://api.olamaps.io/places/v1/reverse-geocode?latlng=${lat},${lon}&api_key=${OLA_MAPS_KEY}`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(3500) });
+    if (!res.ok) return null;
+    const data = await res.json();
 
-    if (res.data && res.data.results?.length > 0) {
-      const first = res.data.results[0];
+    if (data.results && data.results.length > 0) {
+      const first = data.results[0];
       const fullAddr = first.formatted_address || "";
       const name = first.name || fullAddr.split(",")[0] || "Selected Location";
       return {
@@ -199,19 +243,19 @@ export async function searchPlacesOla(
   if (!query || query.trim().length < 1) return [];
 
   try {
-    const url = `https://api.olamaps.io/places/v1/autocomplete`;
-    const params: Record<string, any> = {
-      input: query.trim(),
-      api_key: OLA_MAPS_KEY,
-    };
+    let url = `https://api.olamaps.io/places/v1/autocomplete?input=${encodeURIComponent(
+      query.trim()
+    )}&api_key=${OLA_MAPS_KEY}`;
     if (lat !== undefined && lon !== undefined) {
-      params.location = `${lat},${lon}`;
+      url += `&location=${lat},${lon}`;
     }
 
-    const res = await axios.get(url, { params, timeout: 4000 });
+    const res = await fetch(url, { signal: AbortSignal.timeout(3500) });
+    if (!res.ok) return [];
+    const data = await res.json();
 
-    if (res.data && res.data.predictions?.length > 0) {
-      return res.data.predictions.map((p: any) => {
+    if (data.predictions && data.predictions.length > 0) {
+      return data.predictions.map((p: any) => {
         const fullDesc = p.description || "";
         const mainText = p.structured_formatting?.main_text || fullDesc.split(",")[0] || query;
         const coords = p.geometry?.location;

@@ -16,6 +16,7 @@ import {
   OLA_MAPS_KEY,
   OLA_MAPS_LIGHT_STYLE,
   OLA_MAPS_DARK_STYLE,
+  getOlaMapsStyleObject,
 } from "../services/olaMaps";
 
 interface Props {
@@ -95,17 +96,21 @@ export const LocationPickerModal: React.FC<Props> = ({
   useEffect(() => {
     if (!isOpen) return;
 
-    const timer = setTimeout(() => {
-      if (!mapContainerRef.current || mapInstanceRef.current) return;
+    let isCancelled = false;
 
-      const styleUrl = mapTheme === "satellite" ? OLA_MAPS_DARK_STYLE : OLA_MAPS_LIGHT_STYLE;
+    const timer = setTimeout(async () => {
+      if (!mapContainerRef.current || mapInstanceRef.current || isCancelled) return;
 
       try {
+        const styleObj = await getOlaMapsStyleObject(mapTheme === "satellite" ? "dark" : "roadmap");
+        if (isCancelled || !mapContainerRef.current || mapInstanceRef.current) return;
+
         const map = new maplibregl.Map({
           container: mapContainerRef.current,
-          style: styleUrl,
+          style: styleObj,
           center: [initialLon, initialLat],
-          zoom: 15,
+          zoom: 13,
+          maxZoom: 14,
           attributionControl: false,
           transformRequest: (url: string) => {
             if (url.includes("olamaps.io") && !url.includes("api_key=")) {
@@ -196,10 +201,17 @@ export const LocationPickerModal: React.FC<Props> = ({
 
   // Dynamically switch map style/theme
   useEffect(() => {
+    let isCancelled = false;
     if (mapInstanceRef.current) {
-      const styleUrl = mapTheme === "satellite" ? OLA_MAPS_DARK_STYLE : OLA_MAPS_LIGHT_STYLE;
-      mapInstanceRef.current.setStyle(styleUrl);
+      getOlaMapsStyleObject(mapTheme === "satellite" ? "dark" : "roadmap").then((styleObj) => {
+        if (!isCancelled && mapInstanceRef.current) {
+          mapInstanceRef.current.setStyle(styleObj);
+        }
+      });
     }
+    return () => {
+      isCancelled = true;
+    };
   }, [mapTheme]);
 
   // ─── Direct Search Autocomplete ──────────────────────────────────────────
@@ -246,7 +258,7 @@ export const LocationPickerModal: React.FC<Props> = ({
       isProgrammaticMoveRef.current = true;
       mapInstanceRef.current.flyTo({
         center: [loc.longitude, loc.latitude],
-        zoom: 16,
+        zoom: 14,
         duration: 800,
       });
     }
@@ -299,7 +311,7 @@ export const LocationPickerModal: React.FC<Props> = ({
         isProgrammaticMoveRef.current = true;
         mapInstanceRef.current.flyTo({
           center: [loc.longitude, loc.latitude],
-          zoom: 16,
+          zoom: 14,
           duration: 800,
         });
       }
@@ -600,28 +612,35 @@ export const LocationPickerModal: React.FC<Props> = ({
                 )}
               </div>
 
-              {isReverseGeocoding ? (
-                <div className="flex items-center gap-2 text-xs text-slate-500 py-0.5">
-                  <Loader2 className="w-3.5 h-3.5 text-teal-700 animate-spin" />
-                  <span className="font-medium">Pinpointing address with Ola Maps…</span>
+              <div className="min-w-0">
+                <div
+                  className="text-xs sm:text-sm font-bold text-slate-900 truncate"
+                  title={selectedLocation?.formatted_address || selectedLocation?.name}
+                >
+                  {selectedLocation?.formatted_address || selectedLocation?.name || "Move map to choose location"}
                 </div>
-              ) : (
-                <div className="min-w-0">
-                  <div className="text-xs sm:text-sm font-bold text-slate-900 truncate" title={selectedLocation?.formatted_address || selectedLocation?.name}>
-                    {selectedLocation?.formatted_address || selectedLocation?.name || "Move map to choose location"}
-                  </div>
-                  <div className="text-[11px] text-slate-500 truncate">
-                    {selectedLocation ? `Place: ${selectedLocation.name} • Coordinates: ${selectedLocation.latitude.toFixed(6)}, ${selectedLocation.longitude.toFixed(6)}` : "Drag the map or click anywhere to select"}
-                  </div>
+                <div className="flex items-center gap-1.5 text-[11px] text-slate-500 truncate mt-0.5">
+                  {isReverseGeocoding ? (
+                    <>
+                      <Loader2 className="w-3 h-3 text-teal-600 animate-spin shrink-0" />
+                      <span>Pinpointing address with Ola Maps…</span>
+                    </>
+                  ) : (
+                    <span>
+                      {selectedLocation
+                        ? `Place: ${selectedLocation.name} • Coordinates: ${selectedLocation.latitude.toFixed(5)}, ${selectedLocation.longitude.toFixed(5)}`
+                        : "Drag the map or click anywhere to select"}
+                    </span>
+                  )}
                 </div>
-              )}
+              </div>
             </div>
 
             {/* Confirm Location Button */}
             <button
               type="button"
               onClick={handleConfirm}
-              disabled={!selectedLocation || isReverseGeocoding}
+              disabled={!selectedLocation}
               className={`w-full sm:w-auto px-6 py-3 rounded-xl text-white font-bold text-xs sm:text-sm shadow-md hover:shadow-lg transition flex items-center justify-center gap-2 shrink-0 cursor-pointer disabled:opacity-50 active:scale-95 ${
                 isOrigin
                   ? "bg-emerald-600 hover:bg-emerald-700"

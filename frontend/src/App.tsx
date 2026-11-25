@@ -59,7 +59,7 @@ export const App: React.FC = () => {
           <div className="lg:col-span-7">
             {activeView === "map" ? (
               /* Map View */
-              <div className="sticky top-20">
+              <div className="sticky top-20 h-[650px] sm:h-[760px] rounded-3xl overflow-hidden border border-slate-200/90 shadow-xs bg-white">
                 <MapView selectedRoute={selectedRoute} />
               </div>
             ) : !hasSearched || !searchResult || searchResult.routes.length === 0 ? (
