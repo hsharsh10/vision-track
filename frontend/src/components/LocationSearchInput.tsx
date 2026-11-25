@@ -352,7 +352,7 @@ export const LocationSearchInput: React.FC<Props> = ({
           <div className="px-3.5 py-2 bg-slate-50 flex items-center justify-between text-[10px] font-bold tracking-wider text-slate-500 uppercase">
             <span>{suggestions.length > 0 ? `Search Results (${suggestions.length})` : "Quick Select Hubs"}</span>
             <span className="text-teal-700 bg-teal-50 px-2 py-0.5 rounded-full border border-teal-200 font-semibold tracking-normal normal-case">
-              Google Places Active
+              Ola Maps Active
             </span>
           </div>
 
@@ -493,7 +493,7 @@ export const LocationSearchInput: React.FC<Props> = ({
           {/* Attribution footer */}
           <div className="px-3.5 py-1.5 bg-slate-50 text-[9px] text-slate-400 flex items-center justify-between">
             <span>Dynamic search (English &amp; Hindi)</span>
-            <span>Google Places &amp; Maps</span>
+            <span>Ola Maps &amp; Transit Graph</span>
           </div>
         </div>
       )}

@@ -9,15 +9,12 @@ import {
 } from "../types";
 import { searchRoutes } from "../api/client";
 import { generateSampleRoutes } from "../services/sampleRoutes";
-import { fetchLiveDirections, loadGoogleMapsScript } from "../services/googleMaps";
-
-const GOOGLE_MAPS_KEY =
-  import.meta.env.VITE_GOOGLE_MAPS_API_KEY ||
-  "AIzaSyCqh4jRK4ZKwsmHn7PyNLYlAf0UbGxlnjI";
+import { fetchOlaLiveDirections } from "../services/olaMaps";
 
 interface LiveDataStatus {
   backendOnline: boolean;
   googleMapsReady: boolean;
+  olaMapsReady: boolean;
   lastFetchedAt: string | null;
   liveTravelTimeMin: number | null;
   liveTravelDistanceKm: number | null;
@@ -106,7 +103,8 @@ const defaultQuery: SearchRequest = {
 
 const defaultLiveData: LiveDataStatus = {
   backendOnline: false,
-  googleMapsReady: false,
+  googleMapsReady: true,
+  olaMapsReady: true,
   lastFetchedAt: null,
   liveTravelTimeMin: null,
   liveTravelDistanceKm: null,
@@ -334,7 +332,7 @@ export const useMobilityStore = create<MobilityState>((set, get) => ({
     get().executeSearch();
   },
 
-  // ── Live Google Maps Data Fetch ──────────────────────────────────────────
+  // ── Live Ola Maps Traffic Data Fetch ─────────────────────────────────────
   fetchLiveGoogleData: async () => {
     const q = get().searchQuery;
     const oLat = get().pickupLocation?.latitude ?? q.origin_lat;
@@ -345,26 +343,17 @@ export const useMobilityStore = create<MobilityState>((set, get) => ({
     if (!oLat || !dLat || !oLon || !dLon) return;
 
     try {
-      const mapsOk = await loadGoogleMapsScript(GOOGLE_MAPS_KEY);
-      if (mapsOk) {
-        set((state) => ({
-          liveData: { ...state.liveData, googleMapsReady: true },
-        }));
-      }
-      const liveResult = await fetchLiveDirections(
-        oLat, oLon,
-        dLat, dLon,
-        "DRIVING"
-      );
-
-      if (liveResult) {
+      // Live traffic directions directly via Ola Maps Directions API
+      const olaResult = await fetchOlaLiveDirections(oLat, oLon, dLat, dLon, "driving");
+      if (olaResult) {
         set((state) => ({
           liveData: {
             ...state.liveData,
+            olaMapsReady: true,
             googleMapsReady: true,
             lastFetchedAt: new Date().toLocaleTimeString("en-IN"),
-            liveTravelTimeMin: Math.round(liveResult.durationSeconds / 60),
-            liveTravelDistanceKm: parseFloat((liveResult.distanceMeters / 1000).toFixed(1)),
+            liveTravelTimeMin: Math.round(olaResult.durationSeconds / 60),
+            liveTravelDistanceKm: parseFloat((olaResult.distanceMeters / 1000).toFixed(1)),
           },
         }));
       }

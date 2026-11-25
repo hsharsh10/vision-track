@@ -8,9 +8,21 @@ import {
   Loader2,
   AlertCircle,
 } from "lucide-react";
-import L from "leaflet";
+import * as maplibregl from "maplibre-gl";
+import maplibreWorkerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?url";
+import "maplibre-gl/dist/maplibre-gl.css";
+
+if (typeof (maplibregl as any).setWorkerUrl === "function") {
+  (maplibregl as any).setWorkerUrl(maplibreWorkerUrl);
+}
 import { StandardizedLocation, LocationSource } from "../types";
 import { locationService } from "../services/locationService";
+import {
+  OLA_MAPS_KEY,
+  OLA_MAPS_LIGHT_STYLE,
+  OLA_MAPS_DARK_STYLE,
+  getOlaMapsStyleObject,
+} from "../services/olaMaps";
 
 interface Props {
   isOpen: boolean;
@@ -39,10 +51,10 @@ export const LocationPickerModal: React.FC<Props> = ({
   const [isGPSLoading, setIsGPSLoading] = useState(false);
   const [pickerError, setPickerError] = useState<string | null>(null);
   const [mapTheme, setMapTheme] = useState<"roadmap" | "satellite">("roadmap");
+  const [isMapLoaded, setIsMapLoaded] = useState(false);
 
   const mapContainerRef = useRef<HTMLDivElement>(null);
-  const mapInstanceRef = useRef<L.Map | null>(null);
-  const tileLayerRef = useRef<L.TileLayer | null>(null);
+  const mapInstanceRef = useRef<maplibregl.Map | null>(null);
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reverseGeocodeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isProgrammaticMoveRef = useRef(false);
@@ -85,68 +97,92 @@ export const LocationPickerModal: React.FC<Props> = ({
     []
   );
 
-  // ─── Initialize Map ──────────────────────────────────────────────────────
+  // ─── Initialize Ola Maps Vector Map ───────────────────────────────────────
   useEffect(() => {
     if (!isOpen) return;
 
-    const timer = setTimeout(() => {
-      if (!mapContainerRef.current || mapInstanceRef.current) return;
+    let isCancelled = false;
 
-      const map = L.map(mapContainerRef.current, {
-        center: [initialLat, initialLon],
-        zoom: 15,
-        zoomControl: false,
-      });
+    const timer = setTimeout(async () => {
+      if (!mapContainerRef.current || mapInstanceRef.current || isCancelled) return;
 
-      L.control.zoom({ position: "topright" }).addTo(map);
+      try {
+        const styleObj = await getOlaMapsStyleObject(mapTheme === "satellite" ? "dark" : "roadmap");
+        if (isCancelled || !mapContainerRef.current || mapInstanceRef.current) return;
 
-      // Google Maps Tile Layer (High-speed, global, roadmap & satellite)
-      const getGoogleTileUrl = (theme: "roadmap" | "satellite") =>
-        theme === "satellite"
-          ? "https://mt{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}"
-          : "https://mt{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}";
+        const map = new maplibregl.Map({
+          container: mapContainerRef.current,
+          style: styleObj,
+          center: [initialLon, initialLat],
+          zoom: 13,
+          maxZoom: 14,
+          attributionControl: false,
+          transformRequest: (url: string) => {
+            if (url.includes("olamaps.io") && !url.includes("api_key=")) {
+              const sep = url.includes("?") ? "&" : "?";
+              return { url: `${url}${sep}api_key=${OLA_MAPS_KEY}` };
+            }
+            return { url };
+          },
+        });
 
-      const tileLayer = L.tileLayer(getGoogleTileUrl(mapTheme), {
-        subdomains: ["0", "1", "2", "3"],
-        maxZoom: 20,
-        attribution: "© Google Maps",
-      }).addTo(map);
+        map.addControl(new maplibregl.NavigationControl({ showCompass: true }), "top-right");
+        map.addControl(
+          new maplibregl.AttributionControl({
+            customAttribution: "© <a href='https://maps.olakrutrim.com' target='_blank' rel='noreferrer'>Ola Maps</a>",
+            compact: true,
+          }),
+          "bottom-right"
+        );
 
-      tileLayerRef.current = tileLayer;
+        // Map move listeners for center pin interaction
+        map.on("movestart", () => {
+          setIsDraggingMap(true);
+          setSearchResults([]);
+        });
 
-      // Map move listeners for center pin interaction (Google Maps / Uber style)
-      map.on("movestart", () => {
-        setIsDraggingMap(true);
-        // Dismiss autocomplete dropdown when user starts panning the map
-        setSearchResults([]);
-      });
+        map.on("move", () => {
+          setIsDraggingMap(true);
+        });
 
-      map.on("move", () => {
-        setIsDraggingMap(true);
-      });
+        map.on("moveend", () => {
+          setIsDraggingMap(false);
+          if (isProgrammaticMoveRef.current) {
+            isProgrammaticMoveRef.current = false;
+            return;
+          }
+          const center = map.getCenter();
+          updatePosition(center.lat, center.lng, "MAP_PIN");
+        });
 
-      map.on("moveend", () => {
-        setIsDraggingMap(false);
-        // If the movement was triggered programmatically (e.g. search flyTo), don't overwrite the searched location!
-        if (isProgrammaticMoveRef.current) {
-          isProgrammaticMoveRef.current = false;
-          return;
-        }
-        const center = map.getCenter();
-        updatePosition(center.lat, center.lng, "MAP_PIN");
-      });
+        map.on("click", (e: maplibregl.MapMouseEvent) => {
+          setSearchResults([]);
+          map.panTo([e.lngLat.lng, e.lngLat.lat], { duration: 300 });
+          updatePosition(e.lngLat.lat, e.lngLat.lng, "MAP_PIN");
+        });
 
-      // Map click pans that clicked spot smoothly to center
-      map.on("click", (e: L.LeafletMouseEvent) => {
-        setSearchResults([]);
-        map.panTo(e.latlng, { animate: true, duration: 0.3 });
-        updatePosition(e.latlng.lat, e.latlng.lng, "MAP_PIN");
-      });
+        map.on("load", () => {
+          setIsMapLoaded(true);
+          map.resize();
+        });
 
-      mapInstanceRef.current = map;
+        // Safety timeout so user is never blocked
+        setTimeout(() => {
+          setIsMapLoaded(true);
+          map.resize();
+        }, 2500);
 
-      // Initial reverse geocode
-      updatePosition(initialLat, initialLon, "MAP_PIN");
+        map.on("error", (e: any) => {
+          console.warn("[Ola Maps Picker Notice]", e?.error?.message || e);
+        });
+
+        mapInstanceRef.current = map;
+
+        // Initial reverse geocode
+        updatePosition(initialLat, initialLon, "MAP_PIN");
+      } catch (err) {
+        console.warn("Failed initializing Ola Maps in picker:", err);
+      }
     }, 100);
 
     return () => {
@@ -163,26 +199,29 @@ export const LocationPickerModal: React.FC<Props> = ({
   useEffect(() => {
     if (isOpen && mapInstanceRef.current) {
       setTimeout(() => {
-        mapInstanceRef.current?.invalidateSize();
+        mapInstanceRef.current?.resize();
       }, 150);
     }
   }, [isOpen]);
 
-  // Dynamically switch Google Maps Roadmap / Satellite layer
+  // Dynamically switch map style/theme
   useEffect(() => {
-    if (tileLayerRef.current) {
-      const url =
-        mapTheme === "satellite"
-          ? "https://mt{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}"
-          : "https://mt{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}";
-      tileLayerRef.current.setUrl(url);
+    let isCancelled = false;
+    if (mapInstanceRef.current) {
+      getOlaMapsStyleObject(mapTheme === "satellite" ? "dark" : "roadmap").then((styleObj) => {
+        if (!isCancelled && mapInstanceRef.current) {
+          mapInstanceRef.current.setStyle(styleObj);
+        }
+      });
     }
+    return () => {
+      isCancelled = true;
+    };
   }, [mapTheme]);
 
   // ─── Direct Search Autocomplete ──────────────────────────────────────────
   const handleSearchChange = (text: string) => {
     setSearchQuery(text);
-    // Clear any previous error immediately on user keystroke
     setPickerError(null);
     if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
 
@@ -222,9 +261,10 @@ export const LocationPickerModal: React.FC<Props> = ({
 
     if (mapInstanceRef.current) {
       isProgrammaticMoveRef.current = true;
-      mapInstanceRef.current.flyTo([loc.latitude, loc.longitude], 16, {
-        animate: true,
-        duration: 0.8,
+      mapInstanceRef.current.flyTo({
+        center: [loc.longitude, loc.latitude],
+        zoom: 14,
+        duration: 800,
       });
     }
   };
@@ -274,9 +314,10 @@ export const LocationPickerModal: React.FC<Props> = ({
 
       if (mapInstanceRef.current) {
         isProgrammaticMoveRef.current = true;
-        mapInstanceRef.current.flyTo([loc.latitude, loc.longitude], 16, {
-          animate: true,
-          duration: 0.8,
+        mapInstanceRef.current.flyTo({
+          center: [loc.longitude, loc.latitude],
+          zoom: 14,
+          duration: 800,
         });
       }
     } catch (err: any) {
@@ -315,7 +356,7 @@ export const LocationPickerModal: React.FC<Props> = ({
             </div>
             <div>
               <h2 className="text-sm sm:text-base font-bold text-slate-900 m-0 flex items-center gap-2">
-                <span>Choose Location on Google Maps</span>
+                <span>Choose Location on Ola Maps</span>
               </h2>
               <p className="text-[11px] text-slate-500 m-0 hidden sm:block">
                 Search a place or drag the map to position the pin exactly
@@ -325,7 +366,7 @@ export const LocationPickerModal: React.FC<Props> = ({
 
           {/* Mode & Theme Switchers */}
           <div className="flex items-center gap-2">
-            {/* Google Maps Layer Switcher */}
+            {/* Map Layer Switcher */}
             <div className="flex items-center p-0.5 bg-slate-100 rounded-xl border border-slate-200 text-xs">
               <button
                 type="button"
@@ -347,7 +388,7 @@ export const LocationPickerModal: React.FC<Props> = ({
                     : "text-slate-500 hover:text-slate-900"
                 }`}
               >
-                🛰️ Satellite
+                🌙 Dark
               </button>
             </div>
 
@@ -390,7 +431,7 @@ export const LocationPickerModal: React.FC<Props> = ({
           </div>
         </div>
 
-        {/* ── 2. Search on Map Input (z-50 guarantees dropdown floats over the map) ── */}
+        {/* ── 2. Search on Map Input ── */}
         <div className="relative px-4 py-2.5 bg-slate-50 border-b border-slate-200 shrink-0 z-50">
           <div className="relative max-w-xl mx-auto">
             <form
@@ -439,7 +480,7 @@ export const LocationPickerModal: React.FC<Props> = ({
               </div>
             </form>
 
-            {/* Autocomplete Search Dropdown - Perfectly aligned with input, floats above map */}
+            {/* Autocomplete Search Dropdown */}
             {searchResults.length > 0 && (
               <div className="absolute left-0 right-0 top-full mt-1.5 bg-white border border-slate-200 rounded-2xl shadow-2xl z-50 max-h-64 overflow-y-auto divide-y divide-slate-100 ring-1 ring-slate-900/10">
                 {searchResults.map((item, idx) => (
@@ -488,7 +529,17 @@ export const LocationPickerModal: React.FC<Props> = ({
         <div className="relative flex-1 w-full min-h-0 bg-slate-100 overflow-hidden">
           <div ref={mapContainerRef} className="w-full h-full" />
 
-          {/* Center Pin Target: High visibility, stays centered above map tiles */}
+          {/* Loading overlay */}
+          {!isMapLoaded && (
+            <div className="absolute inset-0 bg-white/75 backdrop-blur-xs flex items-center justify-center z-20">
+              <div className="flex flex-col items-center gap-2">
+                <Loader2 className="w-7 h-7 text-teal-700 animate-spin" />
+                <span className="text-xs font-semibold text-slate-600">Loading Ola Maps vector tiles…</span>
+              </div>
+            </div>
+          )}
+
+          {/* Center Pin Target: Stays centered above vector map tiles */}
           <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-full pointer-events-none z-30 flex flex-col items-center">
             {/* Tooltip hint above pin */}
             <div
@@ -544,7 +595,7 @@ export const LocationPickerModal: React.FC<Props> = ({
           </button>
         </div>
 
-        {/* ── 4. Dedicated Solid Bottom Footer (ALWAYS VISIBLE - NEVER CUT OFF) ── */}
+        {/* ── 4. Dedicated Solid Bottom Footer ── */}
         <div className="bg-white border-t border-slate-200 px-4 sm:px-6 py-3.5 shrink-0 shadow-lg z-30">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             
@@ -566,28 +617,35 @@ export const LocationPickerModal: React.FC<Props> = ({
                 )}
               </div>
 
-              {isReverseGeocoding ? (
-                <div className="flex items-center gap-2 text-xs text-slate-500 py-0.5">
-                  <Loader2 className="w-3.5 h-3.5 text-teal-700 animate-spin" />
-                  <span className="font-medium">Pinpointing address…</span>
+              <div className="min-w-0">
+                <div
+                  className="text-xs sm:text-sm font-bold text-slate-900 truncate"
+                  title={selectedLocation?.formatted_address || selectedLocation?.name}
+                >
+                  {selectedLocation?.formatted_address || selectedLocation?.name || "Move map to choose location"}
                 </div>
-              ) : (
-                <div className="min-w-0">
-                  <div className="text-xs sm:text-sm font-bold text-slate-900 truncate" title={selectedLocation?.formatted_address || selectedLocation?.name}>
-                    {selectedLocation?.formatted_address || selectedLocation?.name || "Move map to choose location"}
-                  </div>
-                  <div className="text-[11px] text-slate-500 truncate">
-                    {selectedLocation ? `Place: ${selectedLocation.name} • Coordinates: ${selectedLocation.latitude.toFixed(6)}, ${selectedLocation.longitude.toFixed(6)}` : "Drag the map or click anywhere to select"}
-                  </div>
+                <div className="flex items-center gap-1.5 text-[11px] text-slate-500 truncate mt-0.5">
+                  {isReverseGeocoding ? (
+                    <>
+                      <Loader2 className="w-3 h-3 text-teal-600 animate-spin shrink-0" />
+                      <span>Pinpointing address with Ola Maps…</span>
+                    </>
+                  ) : (
+                    <span>
+                      {selectedLocation
+                        ? `Place: ${selectedLocation.name} • Coordinates: ${selectedLocation.latitude.toFixed(5)}, ${selectedLocation.longitude.toFixed(5)}`
+                        : "Drag the map or click anywhere to select"}
+                    </span>
+                  )}
                 </div>
-              )}
+              </div>
             </div>
 
             {/* Confirm Location Button */}
             <button
               type="button"
               onClick={handleConfirm}
-              disabled={!selectedLocation || isReverseGeocoding}
+              disabled={!selectedLocation}
               className={`w-full sm:w-auto px-6 py-3 rounded-xl text-white font-bold text-xs sm:text-sm shadow-md hover:shadow-lg transition flex items-center justify-center gap-2 shrink-0 cursor-pointer disabled:opacity-50 active:scale-95 ${
                 isOrigin
                   ? "bg-emerald-600 hover:bg-emerald-700"
