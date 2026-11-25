@@ -393,13 +393,19 @@ export const MapView: React.FC<Props> = ({ selectedRoute }) => {
             );
             const fare = Math.round(leg.fare ?? leg.fare_inr ?? 0);
 
+            const busNo = leg.vehicle_or_transit_details?.bus_no ||
+              leg.vehicle_or_transit_details?.bus_route?.replace(/^Route\s*/i, "");
+            const legHeader = leg.mode === "BUS" && busNo
+              ? `DTC Bus No. ${busNo}`
+              : `${leg.mode} (${leg.provider})`;
+
             const popup = new maplibregl.Popup({ offset: 12, closeButton: true })
               .setLngLat(e.lngLat)
               .setHTML(`
                 <div style="font-family: system-ui, sans-serif; padding: 6px 2px; font-size: 12px; max-width: 240px;">
                   <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">
                     <span style="display:inline-block;width:10px;height:10px;background:${color};border-radius:50%;"></span>
-                    <strong style="color: #0f172a; font-size: 13px;">${index + 1}. ${leg.mode} (${leg.provider})</strong>
+                    <strong style="color: #0f172a; font-size: 13px;">${index + 1}. ${legHeader}</strong>
                   </div>
                   <div style="color: #475569; font-size: 11px; margin-bottom: 4px;">
                     ${leg.start_location?.name || leg.from_name || "Origin"} → ${leg.end_location?.name || leg.to_name || "Destination"}

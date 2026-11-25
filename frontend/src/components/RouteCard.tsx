@@ -271,11 +271,17 @@ export const RouteCard: React.FC<Props> = ({
           .filter((s) => s.mode !== "WALK")
           .map((seg, idx) => {
             const Icon = getModeIcon(seg.mode);
-            const label =
+            let label =
               seg.vehicle_or_transit_details?.category ||
               seg.vehicle_name ||
               seg.provider ||
               seg.mode;
+            if (seg.mode === "BUS") {
+              const busNo =
+                seg.vehicle_or_transit_details?.bus_no ||
+                seg.vehicle_or_transit_details?.bus_route?.replace(/^Route\s*/i, "");
+              label = busNo ? `Bus ${busNo}` : (seg.provider ? `${seg.provider} Bus` : "Bus");
+            }
             return (
               <div
                 key={idx}
@@ -336,7 +342,12 @@ export const RouteCard: React.FC<Props> = ({
                 } else if (leg.mode === "METRO") {
                   stepTitle = `${leg.provider || "DMRC"} Metro`;
                 } else if (leg.mode === "BUS") {
-                  stepTitle = `${leg.provider || "DTC"} Bus`;
+                  const busNo =
+                    leg.vehicle_or_transit_details?.bus_no ||
+                    leg.vehicle_or_transit_details?.bus_route?.replace(/^Route\s*/i, "");
+                  stepTitle = busNo
+                    ? `${leg.provider || "DTC"} Bus (Route ${busNo})`
+                    : `${leg.provider || "DTC"} Bus`;
                 } else if (leg.mode === "AUTO") {
                   stepTitle = `${leg.provider || "Rapido"} Auto`;
                 } else if (leg.mode === "CAB") {
@@ -416,8 +427,19 @@ export const RouteCard: React.FC<Props> = ({
                             </div>
                           )}
                           {leg.vehicle_or_transit_details.bus_route && (
-                            <div className="font-medium text-slate-700">
-                              Route: {leg.vehicle_or_transit_details.bus_route}
+                            <div className="flex items-center gap-1.5 pt-0.5">
+                              <span
+                                className="w-2.5 h-2.5 rounded-full inline-block shrink-0"
+                                style={{ backgroundColor: color }}
+                              />
+                              <span className="font-semibold text-slate-800">
+                                Bus No. {leg.vehicle_or_transit_details.bus_no || leg.vehicle_or_transit_details.bus_route.replace(/^Route\s*/i, "")}
+                              </span>
+                              {leg.vehicle_or_transit_details.interchange_terminal && (
+                                <span className="text-slate-500 text-[10px]">
+                                  (Towards {leg.vehicle_or_transit_details.interchange_terminal.split("/")[0].trim()})
+                                </span>
+                              )}
                             </div>
                           )}
                         </div>

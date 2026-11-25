@@ -136,7 +136,9 @@ export const RouteDetailModal: React.FC<Props> = ({ route, onClose }) => {
                     <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-3.5 space-y-1.5">
                       <div className="flex items-center justify-between">
                         <span className="font-bold text-slate-900 text-sm">
-                          {seg.vehicle_name || seg.mode} ({seg.provider})
+                          {seg.mode === "BUS" && (seg.vehicle_or_transit_details?.bus_no || seg.vehicle_or_transit_details?.bus_route)
+                            ? `DTC Bus No. ${(seg.vehicle_or_transit_details.bus_no || seg.vehicle_or_transit_details.bus_route).replace(/^Route\s*/i, "")}`
+                            : `${seg.vehicle_name || seg.mode} (${seg.provider})`}
                         </span>
                         <span className="font-mono font-semibold text-slate-700 text-xs">
                           {(seg.fare ?? seg.fare_inr ?? 0) > 0 ? `₹${Math.round(seg.fare ?? seg.fare_inr ?? 0)}` : "Free"}
