@@ -317,10 +317,10 @@ class RoutingService:
             )
             generated_routes.append(self._assemble_route(
                 route_id=str(uuid.uuid4())[:8],
-                title="Direct Auto (Rapido Auto)",
+                title="Rapido Auto",
                 route_name="AUTO",
                 category_tag="DIRECT_AUTO",
-                summary_badges=["Direct Route", "Budget Friendly"],
+                summary_badges=["Direct Route", "App Booking"],
                 legs=[auto_leg],
                 fare_estimate=auto_fare_est,
                 direct_cab_fare=benchmark_fare,
@@ -373,15 +373,15 @@ class RoutingService:
                     co2_saved_kg=round(cab_dist_km * 0.09, 2)
                 ))
 
-            # Delhi Govt Metered Auto
+            # Auto (Regulated Official GNCTD Tariff)
             meter_fare, meter_details = transit_service.calculate_metered_auto_fare(cab_dist_km)
-            meter_fare_est = FareEstimate(
+            auto_fare_est = FareEstimate(
                 fare_inr=meter_fare,
                 range_min=meter_fare,
                 range_max=meter_fare,
                 confidence="High",
                 source=FareSource.ESTIMATED_FALLBACK,
-                data_freshness_desc="Official GNCTD Gazette Auto Meter Tariff",
+                data_freshness_desc="Official GNCTD Auto Tariff",
                 details=meter_details
             )
             govt_leg = self._build_leg(
@@ -396,20 +396,20 @@ class RoutingService:
                 end_lat=req.dest_lat,
                 end_lon=req.dest_lon,
                 fare=meter_fare,
-                instructions=f"Hail Delhi Metered Auto from {req.origin_name} to {req.dest_name}",
+                instructions=f"Take Auto from {req.origin_name} to {req.dest_name}",
                 line_color="#0D9488",  # Teal solid for Auto
                 start_dt=base_departure_dt,
-                vehicle_details={"vehicle_type": "Auto", "category": "Govt Metered Auto", "meter_details": meter_details},
+                vehicle_details={"vehicle_type": "Auto", "category": "Auto", "tariff_details": meter_details},
                 custom_geom=(cab_dist_m, cab_dur_s * 1.15, cab_poly, cab_coords)
             )
             generated_routes.append(self._assemble_route(
                 route_id=str(uuid.uuid4())[:8],
-                title="Delhi Govt Metered Auto",
-                route_name="AUTO (Metered)",
-                category_tag="METERED_AUTO",
-                summary_badges=["Regulated Meter", "No Surge"],
+                title="Auto",
+                route_name="AUTO",
+                category_tag="DIRECT_AUTO",
+                summary_badges=["Direct Route", "Regulated Tariff", "No Surge"],
                 legs=[govt_leg],
-                fare_estimate=meter_fare_est,
+                fare_estimate=auto_fare_est,
                 direct_cab_fare=benchmark_fare,
                 co2_saved_kg=round(cab_dist_km * 0.05, 2)
             ))
@@ -418,6 +418,56 @@ class RoutingService:
         # 3. Multimodal Routes (Metro, Bus, Hybrid First/Last Mile)
         # -------------------------------------------------------------
         if req.mode_preference in [TravelModeFilter.ALL, TravelModeFilter.PUBLIC_ONLY, TravelModeFilter.MIXED]:
+            # Direct DTC AC City Bus Option
+            bus_dist_m, bus_dur_s, bus_poly, bus_coords = get_leg_route_geometry(
+                req.origin_lat, req.origin_lon, req.dest_lat, req.dest_lon, "BUS"
+            )
+            bus_km = round(bus_dist_m / 1000.0, 2)
+            bus_fare, bus_desc = transit_service.calculate_dtc_bus_fare(
+                db, bus_km, is_ac=True, qualifies_pink_pass=req.pink_pass
+            )
+            bus_leg = self._build_leg(
+                route_id=str(uuid.uuid4())[:8],
+                seq=1,
+                mode=ModeType.BUS,
+                provider="DTC",
+                start_name=req.origin_name,
+                start_lat=req.origin_lat,
+                start_lon=req.origin_lon,
+                end_name=req.dest_name,
+                end_lat=req.dest_lat,
+                end_lon=req.dest_lon,
+                fare=bus_fare,
+                instructions=f"Take DTC AC City Bus from {req.origin_name} to {req.dest_name}",
+                line_color="#DC2626",  # Red solid for Bus
+                start_dt=base_departure_dt,
+                vehicle_details={"bus_type": "DTC AC Low-Floor", "fare_tier": bus_desc},
+                custom_geom=(bus_dist_m, bus_dur_s * 1.25, bus_poly, bus_coords)
+            )
+            bus_badges = ["DTC City Bus", "AC Low Floor"]
+            if req.pink_pass:
+                bus_badges.append("Pink Pass ₹0")
+            else:
+                bus_badges.append("Budget Choice")
+
+            generated_routes.append(self._assemble_route(
+                route_id=str(uuid.uuid4())[:8],
+                title="DTC AC City Bus",
+                route_name="DTC BUS",
+                category_tag="DTC_BUS",
+                summary_badges=bus_badges,
+                legs=[bus_leg],
+                fare_estimate=FareEstimate(
+                    fare_inr=bus_fare,
+                    range_min=bus_fare,
+                    range_max=bus_fare,
+                    confidence="High",
+                    source=FareSource.ESTIMATED_FALLBACK,
+                    data_freshness_desc=f"{bus_desc} (GNCTD Gazette)"
+                ),
+                direct_cab_fare=benchmark_fare,
+                co2_saved_kg=round(bus_km * 0.12, 2)
+            ))
             origin_stations = transit_service.find_nearest_stations(db, req.origin_lat, req.origin_lon, max_radius_km=7.5, limit=3)
             dest_stations = transit_service.find_nearest_stations(db, req.dest_lat, req.dest_lon, max_radius_km=7.5, limit=3)
 

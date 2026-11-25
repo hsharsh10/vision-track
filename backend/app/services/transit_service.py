@@ -97,7 +97,7 @@ class TransitService:
         return results[:limit]
 
     def find_nearest_bus_stops(
-        self, db: Session, lat: float, lon: float, max_radius_km: float = 2.5, limit: int = 2
+        self, db: Session, lat: float, lon: float, max_radius_km: float = 3.5, limit: int = 2
     ) -> List[Tuple[BusStop, float]]:
         stops = db.query(BusStop).all()
         results = []
@@ -105,6 +105,12 @@ class TransitService:
             d = haversine_distance_km(lat, lon, b.latitude, b.longitude)
             if d <= max_radius_km:
                 results.append((b, d))
+        if not results and stops:
+            # Fallback to wider search radius (up to 8.0 km)
+            for b in stops:
+                d = haversine_distance_km(lat, lon, b.latitude, b.longitude)
+                if d <= 8.0:
+                    results.append((b, d))
         results.sort(key=lambda x: x[1])
         return results[:limit]
 
