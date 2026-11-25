@@ -1,6 +1,5 @@
 import axios from "axios";
 import { StandardizedLocation, LocationSource } from "../types";
-import { reverseGeocodeOla, searchPlacesOla } from "./olaMaps";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "/api/v1";
 
@@ -194,18 +193,34 @@ export class LocationService {
       }
     }
 
-    // 1. Direct client-side Ola Maps Reverse Geocoding
-    try {
-      const olaLoc = await reverseGeocodeOla(lat, lon);
-      if (olaLoc) {
-        return {
-          ...olaLoc,
-          source,
-          accuracy_meters: accuracyMeters,
-        };
+    // 1. Client-side Google Maps Geocoder if loaded in browser
+    if (typeof window !== "undefined" && (window as any).google?.maps?.Geocoder) {
+      try {
+        const gRes = await new Promise<StandardizedLocation | null>((resolve) => {
+          const geocoder = new (window as any).google.maps.Geocoder();
+          geocoder.geocode({ location: { lat, lng: lon } }, (results: any, status: any) => {
+            if (status === "OK" && results && results.length > 0) {
+              const first = results[0];
+              const formatted_address = first.formatted_address || "";
+              const name = first.address_components?.[0]?.long_name || formatted_address.split(",")[0] || "Selected Location";
+              resolve({
+                place_id: first.place_id,
+                name: name !== formatted_address ? name : formatted_address.split(",")[0],
+                formatted_address,
+                latitude: lat,
+                longitude: lon,
+                source,
+                accuracy_meters: accuracyMeters,
+              });
+            } else {
+              resolve(null);
+            }
+          });
+        });
+        if (gRes) return gRes;
+      } catch {
+        // Continue to API
       }
-    } catch {
-      // Continue to API
     }
 
     try {
@@ -299,22 +314,6 @@ export class LocationService {
         (qLower.includes("community") && h.formatted_address.includes("Community Center")) ||
         (qLower.includes("plot") && h.formatted_address.includes("Plot No. 2 & 3"))
     );
-
-    // 1. Direct Ola Maps Places Autocomplete
-    try {
-      const olaResults = await searchPlacesOla(query, lat, lon);
-      if (olaResults && olaResults.length > 0) {
-        const combined = [...hubMatches];
-        for (const item of olaResults) {
-          if (!combined.some((c) => Math.abs(c.latitude - item.latitude) < 0.001 && Math.abs(c.longitude - item.longitude) < 0.001)) {
-            combined.push(item);
-          }
-        }
-        return combined;
-      }
-    } catch {
-      // Continue to backend
-    }
 
     try {
       const params: Record<string, any> = { q: query.trim(), country };

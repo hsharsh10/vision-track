@@ -20,7 +20,7 @@ export const Header: React.FC = () => {
     liveData,
   } = useMobilityStore();
 
-  const { backendOnline, olaMapsReady, lastFetchedAt, liveTravelTimeMin, liveTravelDistanceKm } = liveData;
+  const { backendOnline, googleMapsReady, lastFetchedAt, liveTravelTimeMin, liveTravelDistanceKm } = liveData;
 
   return (
     <header className="bg-white border-b border-slate-200/90 sticky top-0 z-40 px-4 sm:px-6 py-3">
@@ -61,21 +61,21 @@ export const Header: React.FC = () => {
             {backendOnline ? "Backend Live" : "Offline (ML)"}
           </div>
 
-          {/* Ola Maps status */}
+          {/* Google Maps status */}
           <div
             className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border font-semibold ${
-              olaMapsReady
-                ? "bg-teal-50 text-teal-800 border-teal-200"
+              googleMapsReady
+                ? "bg-blue-50 text-blue-700 border-blue-200"
                 : "bg-slate-50 text-slate-400 border-slate-200"
             }`}
-            title={olaMapsReady ? "Ola Maps live vector tiles & directions active" : "Waiting for Ola Maps"}
+            title={googleMapsReady ? "Google Maps live directions active" : "Waiting for Google Maps"}
           >
-            <MapPin className="w-3 h-3 text-teal-700" />
-            {olaMapsReady
+            <MapPin className="w-3 h-3" />
+            {googleMapsReady
               ? liveTravelTimeMin
-                ? `Ola Maps · ${liveTravelTimeMin} min (${liveTravelDistanceKm} km)`
-                : "Ola Maps Live"
-              : "Ola Maps Loading"}
+                ? `${liveTravelTimeMin} min · ${liveTravelDistanceKm} km`
+                : "Maps Live"
+              : "Maps Loading"}
           </div>
 
           {lastFetchedAt && (
