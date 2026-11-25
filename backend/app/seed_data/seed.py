@@ -109,6 +109,10 @@ DTC_BUS_STOPS = [
     {"stop_id": "DTC_008", "name": "Lajpat Nagar Central Market", "lat": 28.5706, "lon": 77.2375, "routes": "419, 423, 433, 543, 724", "is_terminal": False},
     {"stop_id": "DTC_009", "name": "Cyber Hub / Shankar Chowk Gurgaon", "lat": 28.4981, "lon": 77.0894, "routes": "DTC-NCR-111, Gurugram Metropolitan Bus", "is_terminal": False},
     {"stop_id": "DTC_010", "name": "Noida Sector 37 Bus Stand", "lat": 28.5645, "lon": 77.3346, "routes": "34, 347, 392, 492", "is_terminal": True},
+    {"stop_id": "DTC_011", "name": "Azadpur Bus Terminal", "lat": 28.7073, "lon": 77.1770, "routes": "100, 114, 120, 247, 901", "is_terminal": True},
+    {"stop_id": "DTC_012", "name": "Uttam Nagar Bus Terminal", "lat": 28.6219, "lon": 77.0588, "routes": "761, 817, 824, 838, 890", "is_terminal": True},
+    {"stop_id": "DTC_013", "name": "Rohini Sector 1 / Avantika Terminal", "lat": 28.7125, "lon": 77.1065, "routes": "102, 141, 990, 990A, 971", "is_terminal": True},
+    {"stop_id": "DTC_014", "name": "Mehrauli Bus Terminal", "lat": 28.5175, "lon": 77.1850, "routes": "502, 505, 516, 534, 715", "is_terminal": True},
 ]
 
 DMRC_FARE_RULES = [
@@ -182,8 +186,9 @@ def seed_database():
             print(f"Seeded {len(DELHI_METRO_STATIONS)} DMRC stations.")
 
         # 2. Seed Bus Stops
-        if db.query(BusStop).count() == 0:
-            for b in DTC_BUS_STOPS:
+        for b in DTC_BUS_STOPS:
+            existing = db.query(BusStop).filter(BusStop.stop_id == b["stop_id"]).first()
+            if not existing:
                 stop = BusStop(
                     stop_id=b["stop_id"],
                     name=b["name"],
@@ -193,7 +198,7 @@ def seed_database():
                     is_terminal=b["is_terminal"]
                 )
                 db.add(stop)
-            print(f"Seeded {len(DTC_BUS_STOPS)} DTC bus stops.")
+        db.commit()
 
         # 3. Seed Fare Rules
         if db.query(TransitFareRule).count() == 0:

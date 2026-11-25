@@ -486,6 +486,121 @@ class RoutingService:
                 direct_cab_fare=benchmark_fare,
                 co2_saved_kg=round(bus_km * 0.12, 2)
             ))
+
+            # DTC Bus with Interchange Option (Bus Transfer Hub)
+            bus_interchange_res = transit_service.find_best_bus_interchange(
+                db, req.origin_lat, req.origin_lon, req.dest_lat, req.dest_lon
+            )
+            if bus_interchange_res:
+                interchange_stop, dist_leg1_km, dist_leg2_km = bus_interchange_res
+
+                # Leg 1: Origin to Interchange Stop
+                leg1_m, leg1_s, leg1_poly, leg1_coords = get_leg_route_geometry(
+                    req.origin_lat, req.origin_lon, interchange_stop.latitude, interchange_stop.longitude, "BUS"
+                )
+                leg1_km = round(leg1_m / 1000.0, 2)
+                leg1_fare, leg1_desc = transit_service.calculate_dtc_bus_fare(
+                    db, leg1_km, is_ac=True, qualifies_pink_pass=req.pink_pass
+                )
+
+                # Leg 2: Interchange Stop to Destination
+                leg2_m, leg2_s, leg2_poly, leg2_coords = get_leg_route_geometry(
+                    interchange_stop.latitude, interchange_stop.longitude, req.dest_lat, req.dest_lon, "BUS"
+                )
+                leg2_km = round(leg2_m / 1000.0, 2)
+                leg2_fare, leg2_desc = transit_service.calculate_dtc_bus_fare(
+                    db, leg2_km, is_ac=True, qualifies_pink_pass=req.pink_pass
+                )
+
+                # Parse routes serviced at interchange terminal
+                routes_list = [r.strip() for r in (interchange_stop.routes_serviced or "505, 522").split(",") if r.strip()]
+                route_in = routes_list[0] if len(routes_list) > 0 else "505"
+                route_out = routes_list[1] if len(routes_list) > 1 else (routes_list[0] if len(routes_list) > 0 else "522")
+
+                t0 = base_departure_dt
+                l1 = self._build_leg(
+                    route_id=str(uuid.uuid4())[:8],
+                    seq=1,
+                    mode=ModeType.BUS,
+                    provider="DTC",
+                    start_name=req.origin_name,
+                    start_lat=req.origin_lat,
+                    start_lon=req.origin_lon,
+                    end_name=interchange_stop.name,
+                    end_lat=interchange_stop.latitude,
+                    end_lon=interchange_stop.longitude,
+                    fare=leg1_fare,
+                    instructions=f"Board DTC Bus (Route {route_in}) from {req.origin_name} to {interchange_stop.name}",
+                    line_color="#DC2626",
+                    start_dt=t0,
+                    vehicle_details={
+                        "bus_type": "DTC AC Low-Floor",
+                        "bus_route": f"Route {route_in}",
+                        "interchange_terminal": interchange_stop.name,
+                        "fare_tier": leg1_desc
+                    },
+                    custom_geom=(leg1_m, leg1_s * 1.25, leg1_poly, leg1_coords)
+                )
+
+                # 6-minute transfer buffer at interchange
+                t1 = t0 + timedelta(seconds=leg1_s * 1.25)
+                transfer_buffer_s = 360
+                t2 = t1 + timedelta(seconds=transfer_buffer_s)
+
+                l2 = self._build_leg(
+                    route_id=str(uuid.uuid4())[:8],
+                    seq=2,
+                    mode=ModeType.BUS,
+                    provider="DTC",
+                    start_name=interchange_stop.name,
+                    start_lat=interchange_stop.latitude,
+                    start_lon=interchange_stop.longitude,
+                    end_name=req.dest_name,
+                    end_lat=req.dest_lat,
+                    end_lon=req.dest_lon,
+                    fare=leg2_fare,
+                    instructions=f"Interchange at {interchange_stop.name}: Switch to connecting DTC Bus (Route {route_out}) to {req.dest_name}",
+                    line_color="#B91C1C",
+                    start_dt=t2,
+                    vehicle_details={
+                        "bus_type": "DTC AC Low-Floor",
+                        "bus_route": f"Route {route_out}",
+                        "transfer_hub": interchange_stop.name,
+                        "fare_tier": leg2_desc
+                    },
+                    custom_geom=(leg2_m, leg2_s * 1.25, leg2_poly, leg2_coords)
+                )
+
+                total_bus_fare = round(leg1_fare + leg2_fare, 1)
+                term_short_name = interchange_stop.name.split("/")[0].strip()
+
+                int_badges = ["DTC Bus Interchange", f"Via {term_short_name}", "1 Bus Transfer"]
+                if req.pink_pass:
+                    int_badges.append("Pink Pass ₹0")
+                else:
+                    int_badges.append(f"Total ₹{int(total_bus_fare)}")
+
+                freshness = f"DTC Official Gazette (₹{int(leg1_fare)} + ₹{int(leg2_fare)})"
+
+                generated_routes.append(self._assemble_route(
+                    route_id=str(uuid.uuid4())[:8],
+                    title=f"DTC Bus (Interchange at {term_short_name})",
+                    route_name="BUS + BUS",
+                    category_tag="DTC_BUS",
+                    summary_badges=int_badges,
+                    legs=[l1, l2],
+                    fare_estimate=FareEstimate(
+                        fare_inr=total_bus_fare,
+                        range_min=total_bus_fare,
+                        range_max=total_bus_fare,
+                        confidence="High",
+                        source=FareSource.ESTIMATED_FALLBACK,
+                        data_freshness_desc=freshness
+                    ),
+                    direct_cab_fare=benchmark_fare,
+                    co2_saved_kg=round((leg1_km + leg2_km) * 0.12, 2)
+                ))
+
             origin_stations = transit_service.find_nearest_stations(db, req.origin_lat, req.origin_lon, max_radius_km=7.5, limit=3)
             dest_stations = transit_service.find_nearest_stations(db, req.dest_lat, req.dest_lon, max_radius_km=7.5, limit=3)
 

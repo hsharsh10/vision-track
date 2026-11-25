@@ -114,6 +114,52 @@ class TransitService:
         results.sort(key=lambda x: x[1])
         return results[:limit]
 
+    def find_best_bus_interchange(
+        self, db: Session, origin_lat: float, origin_lon: float, dest_lat: float, dest_lon: float
+    ) -> Optional[Tuple[BusStop, float, float]]:
+        """
+        Identifies the optimal DTC Bus Interchange Terminal between origin and destination.
+        Returns: (interchange_stop, dist_orig_km, dist_dest_km)
+        """
+        stops = db.query(BusStop).all()
+        if not stops:
+            return None
+
+        direct_dist = haversine_distance_km(origin_lat, origin_lon, dest_lat, dest_lon)
+        candidates = []
+
+        for b in stops:
+            d_orig = haversine_distance_km(origin_lat, origin_lon, b.latitude, b.longitude)
+            d_dest = haversine_distance_km(b.latitude, b.longitude, dest_lat, dest_lon)
+
+            # Avoid terminal if it's too close to origin or destination (< 800m)
+            if d_orig < 0.8 or d_dest < 0.8:
+                continue
+
+            total_dist = d_orig + d_dest
+            detour_ratio = total_dist / max(1.0, direct_dist)
+
+            # Prioritize recognized bus terminals
+            terminal_weight = 0.85 if b.is_terminal else 1.0
+            score = total_dist * detour_ratio * terminal_weight
+
+            if detour_ratio <= 1.85:
+                candidates.append((b, d_orig, d_dest, score))
+
+        if not candidates:
+            # Fallback: choose terminal minimizing total distance
+            fallback = []
+            for b in stops:
+                d_orig = haversine_distance_km(origin_lat, origin_lon, b.latitude, b.longitude)
+                d_dest = haversine_distance_km(b.latitude, b.longitude, dest_lat, dest_lon)
+                fallback.append((b, d_orig, d_dest, (d_orig + d_dest)))
+            fallback.sort(key=lambda x: x[3])
+            return (fallback[0][0], fallback[0][1], fallback[0][2]) if fallback else None
+
+        candidates.sort(key=lambda x: x[3])
+        best = candidates[0]
+        return best[0], best[1], best[2]
+
     def calculate_dmrc_fare(
         self, db: Session, distance_km: float, has_smart_card: bool = True, is_off_peak: bool = False
     ) -> Tuple[float, str]:
