@@ -13,6 +13,7 @@ from backend.app.services.pricing_service import pricing_service
 from backend.app.services.geometry_service import (
     get_leg_route_geometry, encode_polyline, haversine_distance_m, prefetch_ola_distance_matrix
 )
+from backend.app.services.otd_bus_service import otd_bus_service
 
 logger = logging.getLogger("gatimarg.routing")
 logging.basicConfig(level=logging.INFO)
@@ -418,7 +419,7 @@ class RoutingService:
         # 3. Multimodal Routes (Metro, Bus, Hybrid First/Last Mile)
         # -------------------------------------------------------------
         if req.mode_preference in [TravelModeFilter.ALL, TravelModeFilter.PUBLIC_ONLY, TravelModeFilter.MIXED]:
-            # Direct DTC AC City Bus Option
+            # Direct DTC AC City Bus Option with Delhi OTD Real-Time Bus Tracking
             bus_dist_m, bus_dur_s, bus_poly, bus_coords = get_leg_route_geometry(
                 req.origin_lat, req.origin_lon, req.dest_lat, req.dest_lon, "BUS"
             )
@@ -426,6 +427,27 @@ class RoutingService:
             bus_fare, bus_desc = transit_service.calculate_dtc_bus_fare(
                 db, bus_km, is_ac=True, qualifies_pink_pass=req.pink_pass
             )
+            # Query Delhi OTD Real-Time Bus tracking for live buses near origin
+            live_bus = otd_bus_service.get_nearest_live_bus_summary(req.origin_lat, req.origin_lon)
+            bus_badges = ["DTC City Bus", "AC Low Floor"]
+            if live_bus:
+                bus_badges.append(f"🟢 Live: {live_bus['nearest_bus_reg']}")
+                bus_badges.append(f"ETA {live_bus['eta_min']}m away")
+            elif req.pink_pass:
+                bus_badges.append("Pink Pass ₹0")
+            else:
+                bus_badges.append("Budget Choice")
+
+            bus_veh_details: Dict[str, Any] = {"bus_type": "DTC AC Low-Floor", "fare_tier": bus_desc}
+            if live_bus:
+                bus_veh_details["live_tracking"] = True
+                bus_veh_details["bus_registration"] = live_bus["nearest_bus_reg"]
+                bus_veh_details["bus_route_id"] = live_bus["nearest_route_id"]
+                bus_veh_details["live_distance_m"] = live_bus["distance_m"]
+                bus_veh_details["live_eta_min"] = live_bus["eta_min"]
+                bus_veh_details["active_buses_in_area"] = live_bus["active_buses_count"]
+                bus_veh_details["data_source"] = live_bus["data_source"]
+
             bus_leg = self._build_leg(
                 route_id=str(uuid.uuid4())[:8],
                 seq=1,
@@ -438,18 +460,14 @@ class RoutingService:
                 end_lat=req.dest_lat,
                 end_lon=req.dest_lon,
                 fare=bus_fare,
-                instructions=f"Take DTC AC City Bus from {req.origin_name} to {req.dest_name}",
+                instructions=f"Take DTC AC City Bus from {req.origin_name} to {req.dest_name}" + (f" (Live Bus {live_bus['nearest_bus_reg']} ~{live_bus['eta_min']}m away)" if live_bus else ""),
                 line_color="#DC2626",  # Red solid for Bus
                 start_dt=base_departure_dt,
-                vehicle_details={"bus_type": "DTC AC Low-Floor", "fare_tier": bus_desc},
+                vehicle_details=bus_veh_details,
                 custom_geom=(bus_dist_m, bus_dur_s * 1.25, bus_poly, bus_coords)
             )
-            bus_badges = ["DTC City Bus", "AC Low Floor"]
-            if req.pink_pass:
-                bus_badges.append("Pink Pass ₹0")
-            else:
-                bus_badges.append("Budget Choice")
 
+            bus_freshness = "Delhi OTD Live GPS Feed (Real-Time)" if live_bus else f"{bus_desc} (GNCTD Gazette)"
             generated_routes.append(self._assemble_route(
                 route_id=str(uuid.uuid4())[:8],
                 title="DTC AC City Bus",
@@ -463,7 +481,7 @@ class RoutingService:
                     range_max=bus_fare,
                     confidence="High",
                     source=FareSource.ESTIMATED_FALLBACK,
-                    data_freshness_desc=f"{bus_desc} (GNCTD Gazette)"
+                    data_freshness_desc=bus_freshness
                 ),
                 direct_cab_fare=benchmark_fare,
                 co2_saved_kg=round(bus_km * 0.12, 2)

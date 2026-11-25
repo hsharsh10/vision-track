@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from backend.app.db.database import get_db
 from backend.app.models.models import TransitStation, BusStop, TransitFareRule, ProviderVehicleCategory
+from backend.app.services.otd_bus_service import otd_bus_service
 
 router = APIRouter(prefix="/transit", tags=["Transit"])
 
@@ -50,3 +51,11 @@ def get_provider_categories(db: Session = Depends(get_db)):
     """Returns registered ride-hailing and auto providers with tariff configurations."""
     cats = db.query(ProviderVehicleCategory).all()
     return cats
+
+@router.get("/live-buses")
+def get_live_buses(lat: float = 28.6328, lon: float = 77.2197, radius_km: float = 3.5, limit: int = 15):
+    """
+    Returns real-time DTC and Cluster bus positions, registration numbers,
+    routes, and arrival ETAs from the official Delhi Open Transit Data (OTD) GTFS-RT feed.
+    """
+    return otd_bus_service.get_live_buses_near(lat=lat, lon=lon, radius_km=radius_km, limit=limit)
