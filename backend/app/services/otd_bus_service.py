@@ -131,16 +131,60 @@ class OTDBusService:
 
             dist_m = _haversine_meters(lat, lon, b_lat, b_lon)
             if dist_m <= radius_m:
-                # Average city bus speed in Delhi traffic: ~18 km/h (300 m/min)
-                eta_min = max(1, round(dist_m / 300.0))
+                # Use live OTD bus speed if moving (>= 5 km/h), else Delhi avg ~18 km/h
+                raw_speed = b.get("speed_kmh") or 0.0
+                eff_speed_kmh = min(35.0, max(10.0, raw_speed)) if raw_speed >= 5.0 else 18.0
+                meters_per_min = (eff_speed_kmh * 1000.0) / 60.0
+                eta_min = max(1, round(dist_m / meters_per_min))
                 nearby.append({
                     **b,
                     "distance_meters": round(dist_m),
-                    "eta_minutes": eta_min
+                    "eta_minutes": eta_min,
+                    "effective_speed_kmh": round(eff_speed_kmh, 1)
                 })
 
         nearby.sort(key=lambda x: x["distance_meters"])
         return nearby[:limit]
+
+    def get_corridor_bus_speed_kmh(
+        self,
+        orig_lat: float,
+        orig_lon: float,
+        dest_lat: float,
+        dest_lon: float,
+        radius_km: float = 4.0
+    ) -> Optional[float]:
+        """
+        Estimates live bus corridor speed (km/h) by averaging moving OTD buses
+        near the origin, midpoint, and destination. Returns None if no live buses found.
+        """
+        all_buses = self.fetch_live_bus_positions()
+        if not all_buses:
+            return None
+
+        mid_lat = (orig_lat + dest_lat) / 2.0
+        mid_lon = (orig_lon + dest_lon) / 2.0
+        radius_m = radius_km * 1000.0
+        moving_speeds: List[float] = []
+
+        for b in all_buses:
+            raw_speed = b.get("speed_kmh") or 0.0
+            if raw_speed < 5.0:
+                continue
+            b_lat, b_lon = b.get("latitude"), b.get("longitude")
+            if b_lat is None or b_lon is None:
+                continue
+            if (
+                _haversine_meters(orig_lat, orig_lon, b_lat, b_lon) <= radius_m
+                or _haversine_meters(mid_lat, mid_lon, b_lat, b_lon) <= radius_m
+                or _haversine_meters(dest_lat, dest_lon, b_lat, b_lon) <= radius_m
+            ):
+                moving_speeds.append(min(35.0, max(10.0, raw_speed)))
+
+        if not moving_speeds:
+            return None
+        avg_speed = sum(moving_speeds) / len(moving_speeds)
+        return round(min(32.0, max(12.0, avg_speed)), 1)
 
     def get_nearest_live_bus_summary(
         self,

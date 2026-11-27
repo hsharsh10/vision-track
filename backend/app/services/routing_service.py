@@ -428,8 +428,16 @@ class RoutingService:
             bus_fare, bus_desc = transit_service.calculate_dtc_bus_fare(
                 db, bus_km, is_ac=True, qualifies_pink_pass=req.pink_pass
             )
-            # Query Delhi OTD Real-Time Bus tracking for live buses near origin
+            # Query Delhi OTD Real-Time Bus tracking for live buses near origin & corridor speed
             live_bus = otd_bus_service.get_nearest_live_bus_summary(req.origin_lat, req.origin_lon)
+            live_corridor_kmh = otd_bus_service.get_corridor_bus_speed_kmh(
+                req.origin_lat, req.origin_lon, req.dest_lat, req.dest_lon
+            )
+            eff_bus_dur_s = (
+                max(bus_dur_s, (bus_km / live_corridor_kmh) * 3600.0)
+                if live_corridor_kmh
+                else bus_dur_s * 1.25
+            )
 
             # Determine authentic Delhi DTC bus route number (BusPe-style: from seeded corridor stop data only)
             # NOTE: Delhi OTD GTFS feed's nearest_route_id is an internal numeric DB ID (e.g. "1234"), NOT
@@ -499,10 +507,14 @@ class RoutingService:
                 line_color="#DC2626",  # Red solid for Bus
                 start_dt=base_departure_dt,
                 vehicle_details=bus_veh_details,
-                custom_geom=(bus_dist_m, bus_dur_s * 1.25, bus_poly, bus_coords)
+                custom_geom=(bus_dist_m, eff_bus_dur_s, bus_poly, bus_coords)
             )
 
-            bus_freshness = "Delhi OTD Live GPS Feed (Real-Time)" if live_bus else f"{bus_desc} (GNCTD Gazette)"
+            bus_freshness = (
+                f"Delhi OTD Live GPS ({live_corridor_kmh} km/h corridor avg)"
+                if (live_bus and live_corridor_kmh)
+                else ("Delhi OTD Live GPS Feed (Real-Time)" if live_bus else f"{bus_desc} (GNCTD Gazette)")
+            )
             generated_routes.append(self._assemble_route(
                 route_id=str(uuid.uuid4())[:8],
                 title=f"DTC AC City Bus (Route {assigned_bus_no})",
@@ -521,6 +533,55 @@ class RoutingService:
                 direct_cab_fare=benchmark_fare,
                 co2_saved_kg=round(bus_km * 0.12, 2)
             ))
+
+            # Cheapest Bus Option: DTC Non-AC / Cluster Bus (₹5–₹15)
+            non_ac_fare, non_ac_desc = transit_service.calculate_dtc_bus_fare(
+                db, bus_km, is_ac=False, qualifies_pink_pass=req.pink_pass
+            )
+            if not req.pink_pass and non_ac_fare < bus_fare:
+                non_ac_badges = [f"Bus No. {assigned_bus_no}", "Non-AC / Cluster", "Cheapest Bus"]
+                if live_bus:
+                    non_ac_badges.append(f"🟢 Live: {live_bus['nearest_bus_reg']}")
+                non_ac_veh = dict(bus_veh_details)
+                non_ac_veh["bus_type"] = "DTC Non-AC / Cluster"
+                non_ac_veh["fare_tier"] = non_ac_desc
+
+                non_ac_leg = self._build_leg(
+                    route_id=str(uuid.uuid4())[:8],
+                    seq=1,
+                    mode=ModeType.BUS,
+                    provider="DTC",
+                    start_name=req.origin_name,
+                    start_lat=req.origin_lat,
+                    start_lon=req.origin_lon,
+                    end_name=req.dest_name,
+                    end_lat=req.dest_lat,
+                    end_lon=req.dest_lon,
+                    fare=non_ac_fare,
+                    instructions=f"Take DTC Non-AC / Cluster Bus (Route {assigned_bus_no}) from {req.origin_name} to {req.dest_name}" + (f" (Live Bus {live_bus['nearest_bus_reg']} ~{live_bus['eta_min']}m away)" if live_bus else ""),
+                    line_color="#16A34A",  # Green solid for Non-AC DTC/Cluster Bus
+                    start_dt=base_departure_dt,
+                    vehicle_details=non_ac_veh,
+                    custom_geom=(bus_dist_m, eff_bus_dur_s, bus_poly, bus_coords)
+                )
+                generated_routes.append(self._assemble_route(
+                    route_id=str(uuid.uuid4())[:8],
+                    title=f"DTC Non-AC / Cluster Bus (Route {assigned_bus_no})",
+                    route_name="DTC NON-AC BUS",
+                    category_tag="DTC_NON_AC_BUS",
+                    summary_badges=non_ac_badges,
+                    legs=[non_ac_leg],
+                    fare_estimate=FareEstimate(
+                        fare_inr=non_ac_fare,
+                        range_min=non_ac_fare,
+                        range_max=non_ac_fare,
+                        confidence="High",
+                        source=FareSource.ESTIMATED_FALLBACK,
+                        data_freshness_desc=bus_freshness
+                    ),
+                    direct_cab_fare=benchmark_fare,
+                    co2_saved_kg=round(bus_km * 0.12, 2)
+                ))
 
             # DTC Bus with Interchange Option (Bus Transfer Hub)
             bus_interchange_res = transit_service.find_best_bus_interchange(
@@ -552,6 +613,9 @@ class RoutingService:
                 route_in = routes_list[0] if len(routes_list) > 0 else "505"
                 route_out = routes_list[1] if len(routes_list) > 1 else (routes_list[0] if len(routes_list) > 0 else "522")
 
+                eff_leg1_s = max(leg1_s, (leg1_km / live_corridor_kmh) * 3600.0) if live_corridor_kmh else leg1_s * 1.25
+                eff_leg2_s = max(leg2_s, (leg2_km / live_corridor_kmh) * 3600.0) if live_corridor_kmh else leg2_s * 1.25
+
                 t0 = base_departure_dt
                 l1 = self._build_leg(
                     route_id=str(uuid.uuid4())[:8],
@@ -576,11 +640,11 @@ class RoutingService:
                         "interchange_terminal": interchange_stop.name,
                         "fare_tier": leg1_desc
                     },
-                    custom_geom=(leg1_m, leg1_s * 1.25, leg1_poly, leg1_coords)
+                    custom_geom=(leg1_m, eff_leg1_s, leg1_poly, leg1_coords)
                 )
 
                 # 6-minute transfer buffer at interchange
-                t1 = t0 + timedelta(seconds=leg1_s * 1.25)
+                t1 = t0 + timedelta(seconds=eff_leg1_s)
                 transfer_buffer_s = 360
                 t2 = t1 + timedelta(seconds=transfer_buffer_s)
 
@@ -607,7 +671,7 @@ class RoutingService:
                         "transfer_hub": interchange_stop.name,
                         "fare_tier": leg2_desc
                     },
-                    custom_geom=(leg2_m, leg2_s * 1.25, leg2_poly, leg2_coords)
+                    custom_geom=(leg2_m, eff_leg2_s, leg2_poly, leg2_coords)
                 )
 
                 total_bus_fare = round(leg1_fare + leg2_fare, 1)
@@ -618,6 +682,8 @@ class RoutingService:
                     int_badges.append("Pink Pass ₹0")
                 else:
                     int_badges.append(f"Total ₹{int(total_bus_fare)}")
+                    if total_bus_fare >= 40:
+                        int_badges.append("Daily Pass ₹40/₹50")
 
                 freshness = f"DTC Official Gazette (₹{int(leg1_fare)} + ₹{int(leg2_fare)})"
 
