@@ -431,29 +431,32 @@ class RoutingService:
             # Query Delhi OTD Real-Time Bus tracking for live buses near origin
             live_bus = otd_bus_service.get_nearest_live_bus_summary(req.origin_lat, req.origin_lon)
 
-            # Determine authentic Delhi DTC bus route number (from live GPS, transit network, or corridor stops)
+            # Determine authentic Delhi DTC bus route number (BusPe-style: from seeded corridor stop data only)
+            # NOTE: Delhi OTD GTFS feed's nearest_route_id is an internal numeric DB ID (e.g. "1234"), NOT
+            # the human-readable route number printed on buses (e.g. "505", "534", "85A").
+            # We therefore skip the OTD route_id entirely and use BusStop.routes_serviced from the DB.
             assigned_bus_no = None
-            if live_bus and live_bus.get("nearest_route_id"):
-                raw_rid = str(live_bus["nearest_route_id"]).strip()
-                clean_rid = re.sub(r'^(DTC_|U_|DTC)', '', raw_rid, flags=re.IGNORECASE).strip()
-                if clean_rid and clean_rid != "0":
-                    assigned_bus_no = clean_rid
+            orig_stops = transit_service.find_nearest_bus_stops(db, req.origin_lat, req.origin_lon, max_radius_km=10.0, limit=3)
+            dest_stops = transit_service.find_nearest_bus_stops(db, req.dest_lat, req.dest_lon, max_radius_km=10.0, limit=3)
+
+            if orig_stops and dest_stops:
+                orig_routes = [r.strip() for r in (orig_stops[0][0].routes_serviced or "").split(",") if r.strip()]
+                dest_routes_all: set = set()
+                for ds, _ in dest_stops:
+                    for r in (ds.routes_serviced or "").split(","):
+                        if r.strip():
+                            dest_routes_all.add(r.strip())
+                common = [r for r in orig_routes if r in dest_routes_all]
+                if common:
+                    assigned_bus_no = common[0]
+
+            if not assigned_bus_no and orig_stops:
+                orig_routes = [r.strip() for r in (orig_stops[0][0].routes_serviced or "").split(",") if r.strip()]
+                if orig_routes:
+                    assigned_bus_no = orig_routes[0]
 
             if not assigned_bus_no:
-                orig_stops = transit_service.find_nearest_bus_stops(db, req.origin_lat, req.origin_lon, max_radius_km=10.0, limit=2)
-                dest_stops = transit_service.find_nearest_bus_stops(db, req.dest_lat, req.dest_lon, max_radius_km=10.0, limit=2)
-                if orig_stops:
-                    orig_routes = [r.strip() for r in (orig_stops[0][0].routes_serviced or "").split(",") if r.strip()]
-                    if dest_stops:
-                        dest_routes = [r.strip() for r in (dest_stops[0][0].routes_serviced or "").split(",") if r.strip()]
-                        common = [r for r in orig_routes if r in dest_routes]
-                        if common:
-                            assigned_bus_no = common[0]
-                    if not assigned_bus_no and orig_routes:
-                        assigned_bus_no = orig_routes[0]
-
-            if not assigned_bus_no:
-                assigned_bus_no = "534"  # Default iconic DTC cross-city trunk route
+                assigned_bus_no = "534"  # Fallback: iconic DTC cross-city trunk route
 
             bus_badges = [f"Bus No. {assigned_bus_no}", "DTC AC Low Floor"]
             if live_bus:
